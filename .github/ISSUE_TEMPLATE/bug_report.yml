@@ -1,0 +1,24 @@
+name: Bug report
+description: Something in the ImageStep node, the ImageStep Trigger, a template or an API answer is wrong.
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: The node's version, and n8n's (Settings → About n8n), and whether n8n is self-hosted or n8n Cloud.
+      placeholder: n8n-nodes-imagestep 0.1.4, n8n 2.41.6, self-hosted
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The node and operation, what you expected, and what you got. The node's parameters (without the API key) are the most useful thing.
+    validations:
+      required: true
+  - type: input
+    id: request-id
+    attributes:
+      label: Request id
+      description: The `requestId` from the error, if the API answered one. It lets us find the call in our logs.

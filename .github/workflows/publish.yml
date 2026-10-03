@@ -1,0 +1,107 @@
+name: Publish
+
+# n8n-nodes-imagestep, from a tag. A `v*` tag must name the version in package.json (the export that pushes tags here
+# checks it); if that version is already on npm, nothing is published — a published number cannot be reused.
+#
+# No standing token. npm trusts this workflow by its name and the `release` environment (package → Settings → Trusted
+# publisher) and hands it a short-lived credential over OIDC, which is also what signs npm's provenance statement.
+# Provenance is only issued for a public source repository, and n8n's Creator Portal reads the node's source from the
+# repository the package names, at its root — which is why the node is published from this one.
+#
+# Two jobs. The build job runs everything that executes dependency code — install, tests, the build, the pack — and
+# holds no credential; it hands the tarball to the publish job as an artifact. Only the publish job can mint an OIDC
+# token, and it runs nothing but the uploader. GitHub gives every step of a job with `id-token: write` the means to mint
+# one, and npm trusts this workflow file and its environment rather than a job, so a token minted by a poisoned test
+# dependency in a shared job could publish the package.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.pack.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Test
+        run: pnpm test
+      # `pnpm pack` runs prepack but not prepublishOnly, which is where the build lives.
+      - name: Build
+        run: pnpm run build
+      - name: Pack, unless this version is on npm
+        id: pack
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if [ -n "$(pnpm view "$name@$version" version 2>/dev/null || true)" ]; then
+            echo "::notice::$name@$version is already on npm — skipped"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/npm"
+          pnpm pack --pack-destination "$RUNNER_TEMP/npm"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        if: steps.pack.outputs.publish == 'true'
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/npm
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # The repo only for its pinned pnpm (a local action); nothing in it is installed or run.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v7
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/npm
+      # npm's own CLI does the upload: trusted publishing (OIDC) needs npm >= 11.5.1, pinned here rather than taken
+      # from whichever npm the runner's Node bundles, and fetched with pnpm (`dlx`).
+      - name: Publish
+        env:
+          NPM_CLI: npm@11.19.1
+        run: |
+          set -euo pipefail
+          for tarball in "$RUNNER_TEMP"/npm/*.tgz; do
+            pnpm dlx "$NPM_CLI" publish "$tarball" --provenance --access public
+            echo "::notice::published $(basename "$tarball")"
+          done

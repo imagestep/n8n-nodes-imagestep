@@ -1,0 +1,12 @@
+# pnpm settings only: this repository is one package, at its root.
+
+# Installs and updates pick only versions published at least 7 days (10080 minutes) ago: a fresh release is where
+# supply-chain attacks land and where a broken publish sits before its fix.
+minimumReleaseAge: 10080
+
+# Dependency install scripts: esbuild (vite's) fetches its binary; isolated-vm (n8n-workflow's) builds a native addon
+# the tests never load.
+onlyBuiltDependencies:
+  - esbuild
+ignoredBuiltDependencies:
+  - isolated-vm

@@ -1,0 +1,16 @@
+name: Feature request
+description: Something you needed and could not do with the ImageStep node in n8n.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you were trying to do
+      description: The job, not the solution. What was the workflow, and where did the node stop you?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would have worked
+      description: Optional. An operation, a field or an option you would have used.

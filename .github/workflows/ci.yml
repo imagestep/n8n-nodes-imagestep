@@ -1,0 +1,38 @@
+name: CI
+
+# Every push and pull request: the package installs from its lockfile, its tests run (they build the node with tsc,
+# strict, first) and it packs exactly as a release would publish it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: test-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Before setup-node, which asks pnpm for its store path to cache it.
+      - uses: ./.github/actions/setup-pnpm
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Test
+        run: pnpm test
+      - name: Build and pack
+        run: |
+          pnpm run build
+          pnpm pack --pack-destination "$RUNNER_TEMP/packs"
+          ls -l "$RUNNER_TEMP/packs"
