@@ -514,13 +514,13 @@ describe("ImageStep node — Preset, Job, Asset", () => {
         inputMode: "none",
         prompt: "a red bicycle",
         count: 1,
-        options: { model: "google/gemini-3.1-flash-image-preview", presetId: "builtin-consistent-character" },
+        options: { model: "google/gemini-3.1-flash-image", presetId: "builtin-consistent-character" },
         wait: false
       }
     });
     await new ImageStep().execute.call(ctx);
     expect(seen.job).not.toHaveProperty("presetId");
-    expect(seen.job.model).toBe("google/gemini-3.1-flash-image-preview");
+    expect(seen.job.model).toBe("google/gemini-3.1-flash-image");
   });
 
   it("Job → Get returns the jobRef with published outputs", async () => {
