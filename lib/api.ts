@@ -65,7 +65,10 @@ export interface PageMeta {
 }
 
 export const CREDENTIAL = "imageStepApi";
-const USER_AGENT = "n8n-nodes-imagestep/0.1.0";
+// Every request this package makes names it, the credential test included (imagestep#722): the service logs it, so a key
+// whose only calls are GET /usage says it was this node's credential test. A literal because n8n's rules give a community
+// node no file access to read package.json at run time; the node and credential tests hold it to the package's version.
+export const USER_AGENT = "n8n-nodes-imagestep/0.1.4";
 const DEFAULT_BASE_URL = "https://api.imagestep.dev";
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 

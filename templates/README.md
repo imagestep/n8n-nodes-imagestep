@@ -14,7 +14,7 @@ v4.5) and the ImageStep node at version 1.
 More pipelines — the product trio (one upload → cut-out · white packshot · web size), one character on
 every card, one product in every scene, a template rendered per row — are in the open-source
 [recipes](https://github.com/imagestep/imagestep-sdk/tree/main/recipes), each as a Node script and an n8n
-template, with the pictures a real run made on [/docs/recipes](https://imagestep.dev/docs/recipes#pipelines).
+template, with the pictures a real run made on [/docs/recipes](https://imagestep.dev/docs/recipes?utm_source=github&utm_medium=node-templates#pipelines).
 
 Notes that apply to both:
 

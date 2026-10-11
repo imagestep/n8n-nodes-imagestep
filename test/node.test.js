@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import * as api from "../lib/api.ts";
 import { ImageStep } from "../nodes/ImageStep/ImageStep.node.ts";
 import { fakeContext, fail, ok } from "./fake-context.js";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const sha1 = createHash("sha1").update(png).digest("hex");
@@ -56,7 +59,7 @@ describe("uploadBinary — stage → presigned PUT → finish → poll", () => {
     ]);
     // Every API write carries an Idempotency-Key and the package User-Agent; the storage PUT does not.
     for (const c of ctx.calls.filter((c) => c.via === "auth")) {
-      expect(c.headers["User-Agent"]).toBe("n8n-nodes-imagestep/0.1.0");
+      expect(c.headers["User-Agent"]).toBe(`n8n-nodes-imagestep/${pkg.version}`);
       if (c.method === "POST") expect(c.headers["Idempotency-Key"]).toMatch(/^[0-9a-f-]{36}$/);
       else expect(c.headers["Idempotency-Key"]).toBeUndefined();
     }

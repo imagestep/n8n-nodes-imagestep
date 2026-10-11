@@ -1,6 +1,6 @@
 # n8n-nodes-imagestep
 
-The [ImageStep](https://imagestep.dev) node for [n8n](https://n8n.io) — the image step for your
+The [ImageStep](https://imagestep.dev/?utm_source=npm&utm_medium=node-readme) node for [n8n](https://n8n.io) — the image step for your
 automations. Generate, edit, remove backgrounds, upscale, resize, convert and read metadata from
 one node, hand n8n binaries straight to the API (no signed-upload glue), and get back asset ids
 and stable public URLs. A trigger node starts a workflow when a job finishes, from a signed
@@ -189,7 +189,7 @@ script that runs the same pipeline.
 
 - An API error becomes an n8n error whose message reads `ImageStep <code> (param: <name>):
   <message>` and whose description carries `retryable=true|false`. `code` is from the closed set
-  in the [API contract](https://imagestep.dev/docs/errors#codes) (`invalid_param`,
+  in the [API contract](https://imagestep.dev/docs/errors?utm_source=npm&utm_medium=node-readme#codes) (`invalid_param`,
   `insufficient_credit`, `rate_limited`, `provider_unavailable`, …). With **Continue On Fail** the
   item becomes `{ error, code, param, retryable }` instead of stopping the run; with **Retry On
   Fail**, branch on `retryable`.
@@ -215,10 +215,10 @@ Tested against n8n's `n8n-workflow` 2.x API; requires Node 18+. No runtime depen
 
 ## Resources
 
-- Documentation and support: <https://imagestep.dev/docs/n8n>
-- API reference: <https://imagestep.dev/docs/api>
+- Documentation and support: <https://imagestep.dev/docs/n8n?utm_source=npm&utm_medium=node-readme>
+- API reference: <https://imagestep.dev/docs/api?utm_source=npm&utm_medium=node-readme>
 - Source and issues: <https://github.com/imagestep/n8n-nodes-imagestep>
-- Support and bug reports: <https://imagestep.dev/support> (mention the n8n node)
+- Support and bug reports: <https://imagestep.dev/support?utm_source=npm&utm_medium=node-readme> (mention the n8n node)
 - n8n community nodes: <https://docs.n8n.io/integrations/community-nodes/>
 
 ## Version history

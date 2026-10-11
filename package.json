@@ -48,9 +48,9 @@
     "type": "git",
     "url": "git+https://github.com/imagestep/n8n-nodes-imagestep.git"
   },
-  "homepage": "https://imagestep.dev/docs/n8n",
+  "homepage": "https://imagestep.dev/docs/n8n?utm_source=npm&utm_medium=node-package",
   "bugs": {
-    "url": "https://imagestep.dev/support"
+    "url": "https://imagestep.dev/support?utm_source=npm&utm_medium=node-package"
   },
   "keywords": [
     "n8n-community-node-package",
