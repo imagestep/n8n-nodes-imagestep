@@ -16,7 +16,9 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
+// TypeScript 7's `exports` map no longer lists `bin/tsc`, so the path comes from its package.json's `bin` field.
+const require = createRequire(import.meta.url);
+const tsc = join(dirname(require.resolve("typescript/package.json")), require("typescript/package.json").bin.tsc);
 
 /** Files next to the sources that tsc leaves alone but n8n reads: the codex and the icon. */
 const ASSET = /\.(node\.json|svg)$/;
