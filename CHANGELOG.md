@@ -4,6 +4,34 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## Unreleased
+
+### Changed
+
+- A file the API will not stage fails the node with the API's own code: `unsupported_format` (not an image),
+  `payload_too_large` (over 100 MB) or `invalid_param` (no size), each naming its parameter. It used to say
+  `invalid_param (param: file)` for all three.
+
+### Added
+
+- The trigger's items carry `apiVersion` (`"v1"`), which the API now sends with every event — the version of the
+  body's shape. What may change inside `v1`: https://imagestep.dev/docs/changelog.
+- Job references carry what the MCP server's always had: each item's `index` (where it stands in the job — a page of
+  items is not always contiguous) and `variant`, and on a failed job the job-level `errorCode` and `retryable` —
+  whether a resume is worth its price.
+
+### Fixed
+
+- A Binary File input whose ingest failed — not an image the service can read, say — is now that item's error, with
+  the upload's `code` and `retryable`, and no job is submitted on it. The job used to be accepted and fail item by item.
+- Asset references carry `error` on a `FAILED` asset (Asset → Upload, Get, List): why ingest failed, and whether
+  uploading again can help. Upload From URL's row for a URL whose ingest failed after it was fetched carries the same
+  `error` beside its asset.
+- An answer with no error envelope — an edge's bare 429, a proxy's HTML 502 — is retryable when it is a 429, as in both
+  SDKs: a bare 429 was final, so Retry On Fail and the node's own retries gave up on the one failure most worth
+  retrying. Its `code` is `null` instead of `internal_error` / `unknown_error`, codes the API did not send, and the
+  message names the HTTP status instead.
+
 ## 0.1.4 — 2026-10-03
 
 ### Changed

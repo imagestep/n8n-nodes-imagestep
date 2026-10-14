@@ -3,7 +3,9 @@ import type { IDataObject } from "n8n-workflow";
 /**
  * Asset-by-reference output shapes — the same `assetRef` / `jobRef` the MCP server returns
  * (packages/mcp/src/server.js), so a workflow and an agent read the same fields. Never bytes,
- * never a data URL: an output is an id, its dimensions and a public URL.
+ * never a data URL: an output is an id, its dimensions and a public URL. Where the two differ —
+ * a paging note an agent reads, a flag a workflow branches on, the metadata Asset → Get carries —
+ * is listed with its reason in a test that compares them (imagestep#764).
  */
 
 /** The measured facts of an image: under `image` on a full record, flat on a list row (imagestep#339). */
@@ -25,17 +27,20 @@ export interface Asset extends ImageFacts {
   publicUrl?: string | null;
   expiresAt?: string | number | null;
   metadata?: IDataObject | null;
+  /** Why ingest failed — on a FAILED asset only (imagestep#734). */
+  error?: { code?: string; message?: string; retryable: boolean } | null;
 }
 
 /** One item of a job document. */
 export interface JobItem {
+  index?: number;
   status?: string;
   sourceAssetId?: string;
   resultAssetId?: string | null;
   error?: string;
-  errorMessage?: string;
   errorCode?: string;
   retryable?: boolean;
+  variant?: string;
   step?: number;
   failedStep?: number;
   provider?: string;
@@ -60,8 +65,9 @@ export interface Job {
   totalItems?: number;
   completedItems?: number;
   failedItems?: number;
-  creditsCharged?: number;
   actualCredits?: number;
+  errorCode?: string;
+  retryable?: boolean;
   expiresAt?: string;
   items?: JobItem[];
   itemsTruncated?: boolean;
@@ -103,7 +109,9 @@ export function assetRef(a: Asset | null | undefined): IDataObject | null {
     expiresAt: a.expiresAt ? new Date(a.expiresAt).toISOString() : undefined,
     // `read_metadata` is a sync op answered by the asset itself (contract §8): exiftool's map rides on
     // Asset → Get so a workflow can file by `DateTimeOriginal` and `GPSLatitude` / `GPSLongitude` (imagestep#333).
-    metadata: a.metadata || undefined
+    metadata: a.metadata || undefined,
+    // Why ingest failed, on a FAILED asset only (imagestep#734): whether uploading the file again can help is `retryable`.
+    error: a.error || undefined
   };
 }
 
@@ -114,12 +122,16 @@ export function assetRef(a: Asset | null | undefined): IDataObject | null {
  */
 export function jobRef(job: Job, outputs?: Asset[]): IDataObject {
   const items = (job.items || []).map((i) => ({
+    // Where the item stands in the job: a page of items read by status is not contiguous (#440).
+    index: i.index,
     status: i.status,
     sourceAssetId: i.sourceAssetId,
     resultAssetId: i.resultAssetId,
-    error: i.error || i.errorMessage || undefined,
+    error: i.error || undefined,
     errorCode: i.errorCode,
     retryable: i.retryable,
+    // Which of the job's variants this item made (#276): a job submitted elsewhere, read here by Job → Get / Wait.
+    variant: i.variant,
     // A `chain` item is delivered once per segment (imagestep#246): which one it is on, and which one it failed
     // on, is the single fact a branch on a failure cannot work out from the rest of this object.
     step: i.step,
@@ -143,7 +155,10 @@ export function jobRef(job: Job, outputs?: Asset[]): IDataObject {
     totalItems: job.totalItems ?? items.length,
     completedItems: job.completedItems ?? items.filter((i) => i.status === "COMPLETED").length,
     failedItems: job.failedItems ?? items.filter((i) => i.status === "FAILED").length,
-    creditsCharged: job.creditsCharged ?? job.actualCredits,
+    creditsCharged: job.actualCredits,
+    // A failed job's verdict on its items (#294): retryable when any failed item is, so a resume is worth its price.
+    errorCode: job.errorCode,
+    retryable: job.retryable,
     expiresAt: job.expiresAt,
     items,
     // The job document inlines its first 100 items (imagestep#440); `outputs` is every output all the same (#522).

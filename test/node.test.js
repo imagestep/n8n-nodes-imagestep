@@ -90,9 +90,16 @@ describe("uploadBinary — stage → presigned PUT → finish → poll", () => {
 
   it("surfaces a rejected file (size limit) as a non-retryable error naming the parameter", async () => {
     const routes = uploadRoutes({});
-    routes["POST /api/v1/assets/stage-upload"] = () => ok([{ error: "File exceeds the 50 MB limit" }]);
+    routes["POST /api/v1/assets/stage-upload"] = () =>
+      ok([
+        {
+          failure: { code: "payload_too_large", message: "File exceeds 100 MB size limit", retryable: false, param: "fileSize" },
+          error: "File exceeds 100 MB size limit"
+        }
+      ]);
     const ctx = fakeContext({ routes, binary: { data: { buffer: png, fileName: "cat.png", mimeType: "image/png" } } });
-    await expect(api.uploadBinary(ctx, 0, "data")).rejects.toThrow(/invalid_param \(param: file\): File exceeds/);
+    // The service's code (#755); the node used to say `invalid_param` for every refusal.
+    await expect(api.uploadBinary(ctx, 0, "data")).rejects.toThrow(/payload_too_large \(param: fileSize\): File exceeds/);
   });
 });
 
@@ -111,7 +118,7 @@ function jobRoutes(seen, { publish = true } = {}) {
         id: "job1",
         type: "ai-remove-bg",
         status: "COMPLETED",
-        creditsCharged: 10,
+        actualCredits: 10,
         items: [
           { status: "COMPLETED", sourceAssetId: "ast1", resultAssetId: "out1" },
           { status: "COMPLETED", sourceAssetId: "ast2", resultAssetId: "out2" }
@@ -234,6 +241,31 @@ describe("ImageStep node — Operation → Run", () => {
     });
     expect(out[0].json).toMatchObject({ jobId: "job1", status: "PENDING" });
     expect(out[0].json.outputs).toBeUndefined();
+  });
+
+  it("a binary whose ingest FAILED is that item's error, with the asset's reason, and no job is submitted (#759)", async () => {
+    const seen = {};
+    const routes = { ...uploadRoutes(seen), ...jobRoutes(seen) };
+    routes["POST /api/v1/assets/status"] = () => ok({ items: [{ id: "ast1", status: "FAILED" }] });
+    routes["GET /api/v1/assets/ast1"] = () =>
+      ok({
+        id: "ast1",
+        name: "cat.png",
+        status: "FAILED",
+        error: { code: "unsupported_format", message: "not an image", retryable: false }
+      });
+    const params = { resource: "op", operation: "run", op: "upscale", inputMode: "binary", binaryProperty: "data", wait: false };
+    const binary = { data: { buffer: png, fileName: "cat.png", mimeType: "image/png" } };
+    const err = await new ImageStep().execute.call(fakeContext({ routes, binary, params })).catch((e) => e);
+    expect(err.message).toMatch(/unsupported_format \(param: data\): cat.png: not an image/);
+    expect(err).toMatchObject({ code: "unsupported_format", param: "data", retryable: false });
+    expect(seen.job).toBeUndefined();
+
+    const tolerant = fakeContext({ routes, binary, params });
+    tolerant.continueOnFail = () => true;
+    const [out] = await new ImageStep().execute.call(tolerant);
+    expect(out[0].json).toMatchObject({ code: "unsupported_format", param: "data", retryable: false });
+    expect(tolerant.calls.some((c) => c.method === "POST" && new URL(c.url).pathname === "/api/v1/jobs")).toBe(false);
   });
 
   it("generate needs no input and sends count", async () => {
@@ -393,7 +425,9 @@ describe("ImageStep node — Operation → Run", () => {
       params
     });
     const fromHeader = await new ImageStep().execute.call(bare).catch((e) => e);
-    expect(fromHeader).toMatchObject({ code: "internal_error", retryable: true, requestId: "req-header" });
+    // No envelope, no code (#766): not internal_error, which the service did not say.
+    expect(fromHeader).toMatchObject({ code: null, retryable: true, requestId: "req-header" });
+    expect(fromHeader.message).toMatch(/^ImageStep HTTP 502: /);
   });
 });
 
@@ -642,6 +676,20 @@ describe("uploadFromUrls — the service fetches (#219)", () => {
     // Nothing went to storage from n8n: every call carried the credential, none was a plain download or PUT.
     expect(ctx.calls.every((c) => c.via === "auth")).toBe(true);
   });
+
+  it("a URL taken whose ingest then FAILED is a miss too: its row carries the asset's error beside the asset (#759)", async () => {
+    const failure = { code: "unsupported_format", message: "not an image", retryable: false };
+    const ctx = fakeContext({
+      routes: {
+        "POST /api/v1/assets/from-url": () => ok([{ url: "https://cdn.example/a.png", id: "ast9", status: "PROCESSING" }]),
+        "POST /api/v1/assets/status": () => ok({ items: [{ id: "ast9", status: "FAILED" }] }),
+        "GET /api/v1/assets/ast9": () => ok({ id: "ast9", name: "a", status: "FAILED", error: failure })
+      },
+      params: { resource: "asset", operation: "uploadFromUrl", urls: "https://cdn.example/a.png" }
+    });
+    const [out] = await new ImageStep().execute.call(ctx);
+    expect(out[0].json).toMatchObject({ url: "https://cdn.example/a.png", assetId: "ast9", status: "FAILED", error: failure });
+  });
 });
 
 // #521: n8n's Retry On Fail runs the whole node again over every input item. The key of a write is derived from the
@@ -725,6 +773,22 @@ describe("retries and idempotency keys (#521)", () => {
     expect(out[0].json.jobId).toBe("job1");
     expect(seen).toHaveLength(3);
     expect(new Set(seen).size).toBe(1);
+  });
+
+  // #766: an edge's 429 has no envelope. It is the failure most worth waiting out, and it was final: retryable=false.
+  it("retries a bare 429 like an enveloped one, and reports it retryable with no code once the retries run out", async () => {
+    let calls = 0;
+    const bare = { "POST /api/v1/jobs": () => (calls++, { status: 429, headers: { "Retry-After": "0" }, body: "" }) };
+    const err = await new ImageStep().execute.call(fakeContext({ routes: bare, params })).catch((e) => e);
+    expect(calls).toBe(3);
+    expect(err).toMatchObject({ code: null, retryable: true, httpCode: "429" });
+    expect(err.description).toMatch(/retryable=true/);
+    expect(err.message).toMatch(/^ImageStep HTTP 429: /);
+
+    const tolerant = fakeContext({ routes: bare, params });
+    tolerant.continueOnFail = () => true;
+    const [out] = await new ImageStep().execute.call(tolerant);
+    expect(out[0].json).toMatchObject({ code: null, retryable: true });
   });
 
   it("gives up after two retries, and never retries a non-retryable answer", async () => {

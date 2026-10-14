@@ -8,6 +8,8 @@ export interface OpEntry {
   description?: string;
   typicalSeconds?: number;
   syncEndpoint?: string | null;
+  /** The op's parameters include a `prompt` (the static list only). */
+  takesPrompt?: boolean;
 }
 
 /**
@@ -23,8 +25,8 @@ export interface OpEntry {
  */
 export const STATIC_OPS: OpEntry[] = STATIC_OPS_JSON;
 
-/** Ops that take a prompt — decides when the Prompt field is shown. */
-export const PROMPT_OPS = ["generate", "edit", "analyze"];
+/** Ops that take a prompt — decides when the Prompt field is shown. From the catalogue, like the list itself (#767). */
+export const PROMPT_OPS = STATIC_OPS.filter((o) => o.takesPrompt).map((o) => o.op);
 
 /** Kinds the dropdown lists; `sync` ops (read_metadata) are answered by Asset → Get, not by a job. */
 const JOB_KINDS = new Set(["ai", "deterministic"]);

@@ -2,12 +2,14 @@
   {
     "op": "generate",
     "kind": "ai",
-    "description": "Text → image. Returns one asset per generated image."
+    "description": "Text → image. Returns one asset per generated image.",
+    "takesPrompt": true
   },
   {
     "op": "edit",
     "kind": "ai",
-    "description": "Image + prompt → image (instruction edit, style transfer, inpaint by description)."
+    "description": "Image + prompt → image (instruction edit, style transfer, inpaint by description).",
+    "takesPrompt": true
   },
   {
     "op": "remove_bg",
@@ -32,7 +34,8 @@
   {
     "op": "analyze",
     "kind": "ai",
-    "description": "Image → structured JSON: a description, search tags, objects, the scene and any legible text, or the shape you pass as parameters.schema. Each item's answer is its output (items[].output on GET /api/v1/jobs/{id} and on the job.item.completed webhook). With the default schema, the answer's tags and objects are also added to the asset's tags, so GET /api/v1/assets?tag= finds it; a schema of your own leaves the asset alone. Produces no new asset."
+    "description": "Image → structured JSON: a description, search tags, objects, the scene and any legible text, or the shape you pass as parameters.schema. Each item's answer is its output (items[].output on GET /api/v1/jobs/{id} and on the job.item.completed webhook). With the default schema, the answer's tags and objects are also added to the asset's tags, so GET /api/v1/assets?tag= finds it; a schema of your own leaves the asset alone. Produces no new asset.",
+    "takesPrompt": true
   },
   {
     "op": "resize",

@@ -136,10 +136,10 @@ describe("reference mappers (same shape as the MCP server)", () => {
         id: "job_1",
         type: "process",
         status: "COMPLETED",
-        creditsCharged: 0,
+        actualCredits: 0,
         items: [
           { status: "COMPLETED", sourceAssetId: "a", resultAssetId: "out1" },
-          { status: "FAILED", sourceAssetId: "b", errorMessage: "boom" }
+          { status: "FAILED", sourceAssetId: "b", error: "boom" }
         ]
       },
       [{ id: "out1", image: { width: 1 } }]

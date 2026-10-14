@@ -29,7 +29,7 @@ export type Context = IExecuteFunctions | ILoadOptionsFunctions | IHookFunctions
 
 /** A failure as this layer throws it: n8n's error plus the contract's fields a retry and a workflow branch on. */
 export type Failure = Error & {
-  code?: string;
+  code?: string | null;
   retryable?: boolean;
   retryAfter?: number | null;
   param?: string | null;
@@ -243,6 +243,10 @@ function header(headers: IDataObject | undefined, name: string): unknown {
  * envelope kept as the error's JSON for expressions on the error output. `requestId` (contract
  * §11: quote it when reporting a failure) comes from the envelope, or from `X-Request-Id` when the
  * body is not one — the same rule as both SDKs and the MCP server (#277).
+ *
+ * An answer with no envelope — a proxy's HTML 502, an edge's bare 429 — names no code, and `code` says so with `null`
+ * rather than one the service never sent; without a `retryable` of its own, a 429 or a 5xx is one, as in both SDKs
+ * (#568, #766). A bare 429 used to be final here: the retry loop below reads `retryable`.
  */
 function toNodeApiError(ctx: Context, status: number, json: IDataObject | null, where: string, headers: IDataObject | undefined): Failure {
   const e = ((json && json.error) || {}) as {
@@ -254,10 +258,10 @@ function toNodeApiError(ctx: Context, status: number, json: IDataObject | null, 
     requestId?: string;
   };
   const requestId = (e.requestId ?? header(headers, "x-request-id") ?? null) as string | null;
-  const code = e.code || (status >= 500 ? "internal_error" : "unknown_error");
-  const retryable = e.retryable ?? status >= 500;
-  const messageText = e.message || (json?.message as string | undefined) || `HTTP ${status}`;
-  const message = `ImageStep ${code}${e.param ? ` (param: ${e.param})` : ""}: ${messageText}`;
+  const code = e.code || null;
+  const retryable = e.retryable ?? (status === 429 || status >= 500);
+  const messageText = e.message || (json?.message as string | undefined) || (code ? `HTTP ${status}` : "no error body");
+  const message = `ImageStep ${code ?? `HTTP ${status}`}${e.param ? ` (param: ${e.param})` : ""}: ${messageText}`;
   const description = `${where} → ${status}. retryable=${retryable}${e.details ? `; details=${JSON.stringify(e.details)}` : ""}${requestId ? `; requestId=${requestId}` : ""}`;
   const error = new NodeApiError(
     ctx.getNode(),
@@ -311,10 +315,13 @@ export async function uploadBinary(
     })
   ).data;
   const stage = Array.isArray(staged) ? staged[0] : staged;
-  if (!stage || stage.error) {
-    throw new NodeOperationError(ctx.getNode(), `ImageStep invalid_param (param: file): ${stage?.error || "upload rejected"}`, {
+  if (!stage) throw new NodeOperationError(ctx.getNode(), "ImageStep stage-upload answered nothing", { itemIndex });
+  if (stage.failure) {
+    // The service's own code (imagestep#755): `unsupported_format`, `payload_too_large`, `invalid_param`.
+    const { code, message, retryable, param } = stage.failure;
+    throw new NodeOperationError(ctx.getNode(), `ImageStep ${code}${param ? ` (param: ${param})` : ""}: ${message}`, {
       itemIndex,
-      description: "retryable=false"
+      description: `retryable=${retryable}`
     });
   }
   // Same bytes already ingested by this account → reuse that asset (one API round-trip, no upload).
@@ -352,11 +359,15 @@ interface Staged {
   contentType?: string;
   exists?: boolean;
   existingAssetId?: string;
-  error?: string;
+  /** Why this file was not staged (imagestep#755). */
+  failure?: IngestError;
 }
 
+/** Why a URL made no asset, why a file was not staged, or why an asset FAILED ingest: the API's `ItemError`. */
+type IngestError = { code?: string; message?: string; retryable: boolean; param?: string };
+
 /** One answer of `POST /api/v1/assets/from-url`: an asset, or the reason that URL made none. */
-type Ingested = Partial<Asset> & { url: string; error?: string };
+type Ingested = Omit<Partial<Asset>, "error"> & { url: string; error?: IngestError };
 
 /** URLs per `POST /api/v1/assets/from-url`: the service's `IngestController.MAX_URLS`. */
 const URLS_PER_INGEST = 20;
@@ -366,7 +377,8 @@ const IDS_PER_STATUS = 100;
 /**
  * Have the service fetch public image URLs and create assets (imagestep#219): nothing is downloaded into
  * n8n, which on n8n Cloud has nowhere to put it anyway. One result per URL, in order — `{ url, asset }` or
- * `{ url, error }` — so one dead link does not cost the rest of the list.
+ * `{ url, error }` — so one dead link does not cost the rest of the list. A URL the service took whose ingest then
+ * FAILED is `{ url, asset, error }`: the asset exists (it expires in a day) and `error` says why (#734, #759).
  */
 export async function uploadFromUrls(
   ctx: Context,
@@ -378,7 +390,7 @@ export async function uploadFromUrls(
     intervalMs,
     itemIndex
   }: { collection?: string; retentionDays?: number; wait?: boolean; intervalMs?: number; itemIndex?: number } = {}
-): Promise<Array<{ url: string; asset?: Asset; error?: string }>> {
+): Promise<Array<{ url: string; asset?: Asset; error?: IngestError }>> {
   // Twenty to a request (#525): the service refuses a longer list whole (`IngestController.MAX_URLS`), and the field
   // takes any number.
   const results: Ingested[] = [];
@@ -392,9 +404,13 @@ export async function uploadFromUrls(
   }
   const created = results.filter((r) => !r.error).map((r) => String(r.id));
   const ready = wait && created.length ? await waitAssetsReady(ctx, created, { intervalMs }) : null;
-  return results.map((r) =>
-    r.error ? { url: r.url, error: r.error } : { url: r.url, asset: ready ? ready.get(String(r.id)) : (r as Asset & { url: string }) }
-  );
+  return results.map((r) => {
+    if (r.error) return { url: r.url, error: r.error };
+    const asset = ready ? (ready.get(String(r.id)) as Asset) : (r as Asset & { url: string });
+    return asset.status === "FAILED"
+      ? { url: r.url, asset, error: asset.error || { message: "ingest failed", retryable: true } }
+      : { url: r.url, asset };
+  });
 }
 
 /** One asset: {@link waitAssetsReady} for one id. */
@@ -566,8 +582,9 @@ export async function waitJob(
 
 /**
  * Rows per page of a listing — the service's ceiling (`perPage` ≤ 100) — and ids per publish in {@link collectOutputs}:
- * a publish answers every asset it touched, and an answer over 512 KB is not kept for an idempotent replay (contract §3),
- * so a bigger one would turn the replay Retry On Fail relies on (#521) into `409 idempotency_key_reuse`.
+ * a publish answers every asset it touched in full, so a page keeps each answer, and each retry Retry On Fail makes (#521),
+ * small. (An answer over 512 KB is no longer a `409 idempotency_key_reuse` on replay: the service rebuilds it from the
+ * assets as they are now, contract §3, imagestep#756.)
  */
 const PAGE = 100;
 

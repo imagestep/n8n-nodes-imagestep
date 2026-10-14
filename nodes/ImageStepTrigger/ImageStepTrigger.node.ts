@@ -24,7 +24,7 @@ const EVENTS: INodePropertyOptions[] = [
 /**
  * ImageStep Trigger — a webhook endpoint registered on activation (`POST /api/v1/webhook-endpoints`),
  * verified per delivery (HMAC-SHA256 over `"<t>.<raw body>"`, docs/api-contract.md §6) and
- * removed on deactivation. Emits one item per event: `{ id, type, createdAt, data }`.
+ * removed on deactivation. Emits one item per event: `{ id, type, apiVersion, createdAt, data }`.
  */
 export class ImageStepTrigger implements INodeType {
   description: INodeTypeDescription = {

@@ -124,7 +124,8 @@ export class ImageStep implements INodeType {
                 json: {
                   ...handle,
                   error: failed.message,
-                  code: failed.timedOut ? null : failed.code || "internal_error",
+                  // An API answer with no error envelope has no code (#766); a failure this node raised has internal_error.
+                  code: failed.timedOut ? null : (failed.code ?? (failed.httpCode ? null : "internal_error")),
                   param: failed.param ?? null,
                   retryable: failed.retryable ?? false
                 },
@@ -207,8 +208,11 @@ async function runQueued(ctx: IExecuteFunctions, resource: string, operation: st
         wait: p("waitForReady", true),
         itemIndex: i
       });
-      // One output item per URL, a failed one included: a workflow routes the misses instead of stopping on them.
-      return results.map((r) => ({ json: r.error ? { url: r.url, error: r.error } : { url: r.url, ...assetRef(r.asset) } }));
+      // One output item per URL, a failed one included: a workflow routes the misses instead of stopping on them. A URL
+      // the service took whose ingest then FAILED is a miss too, and carries `error` the same way, beside its asset (#759).
+      return results.map((r) => ({
+        json: r.asset ? { url: r.url, ...assetRef(r.asset), error: r.error } : { url: r.url, error: r.error }
+      }));
     }
     if (operation === "get") return [{ json: assetRef(await api.getAsset(ctx, p<string>("assetId"))) }];
     // A cursor (the nextCursor of an earlier List, #493) says where the page starts, so the Page field is not sent with it.
@@ -321,6 +325,18 @@ async function resolveInputAssets(
       return { assetIds: [], imageCount: 1 };
     }
     const asset = await api.uploadBinary(ctx, i, property, { collection, retentionDays, wait: true });
+    // Taken, then ingest FAILED (#759): a job on it would be accepted and fail item by item, with another code and the
+    // job's `retryable` in place of the asset's, which says whether uploading the file again can help (#734).
+    if (asset.status === "FAILED") {
+      const { code = "internal_error", message = "ingest failed", retryable = true } = asset.error || {};
+      throw Object.assign(
+        new NodeOperationError(ctx.getNode(), `ImageStep ${code} (param: ${property}): ${asset.name || asset.id}: ${message}`, {
+          itemIndex: i,
+          description: `retryable=${retryable}`
+        }),
+        { code, retryable, param: property }
+      );
+    }
     return { assetIds: [asset.id] };
   }
   return { assetIds: [] };
