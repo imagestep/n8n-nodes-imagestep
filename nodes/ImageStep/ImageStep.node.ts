@@ -18,13 +18,14 @@ import { properties } from "./description";
 const MAIN = (NodeConnectionTypes && NodeConnectionTypes.Main) || "main";
 
 /**
- * How many input items run at once (#523): the synchronous lane's per-account ceiling (`api.sync.max-concurrent-per-account`
- * in the service's application.yml, 4 — the CLI `image` group's default too), so a node of 100 resizes uses the lane
- * the account has instead of a quarter of it. Only a synchronous op actually runs four-wide: every other item — a job,
- * an upload, a preset — takes {@link serialLane} one at a time, because a job item holds one of the account's few open
- * waits (contract §5.1) for up to its Wait Seconds, and a job is already where the service does the batching.
+ * How many input items run at once (#523, #820): as many as one account gets of a prod node's synchronous lane — its 4
+ * slots less the one `api.sync.reserve` keeps for accounts with nothing in flight (the service's application.yml) — the
+ * CLI `image` group's default too. One more would hear 429 on every batch that fills the node; one fewer would leave a
+ * slot the account has unused. Only a synchronous op actually runs three-wide: every other item — a job, an upload, a
+ * preset — takes {@link serialLane} one at a time, because a job item holds one of the account's few open waits
+ * (contract §5.1) for up to its Wait Seconds, and a job is already where the service does the batching.
  */
-export const ITEM_CONCURRENCY = 4;
+export const ITEM_CONCURRENCY = 3;
 
 /** Thrown for an item that was still queued when another item failed the node: it never ran, so it has no row. */
 const NOT_STARTED = Symbol("not started");

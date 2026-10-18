@@ -89,8 +89,8 @@ One node, a **Resource** and an **Operation** dropdown. It is marked usable as a
     and so does anything that is not one image — several *Asset IDs*, *None*, or a catalogue this
     node could not reach. One *Asset ID* does take it (the reference form of the endpoint: the
     service reads its own bucket), and *Binary File* comes back on the property it went in on.
-    The catalogue is read once per execution, and off-path items run four at a time — the
-    account's synchronous-lane ceiling; items that become jobs, uploads and presets still run one
+    The catalogue is read once per execution, and off-path items run three at a time — what
+    one account gets of a node's synchronous lane, which keeps its last slot for other accounts; items that become jobs, uploads and presets still run one
     at a time, each holding one of the account's open job waits. Output order and `pairedItem`
     follow the input either way. An item that has to run as a job while Store Result is off is
     still waited for, but **nothing is published**: its outputs come back as asset ids with no
