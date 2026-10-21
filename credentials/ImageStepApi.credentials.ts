@@ -2,7 +2,7 @@ import type { IAuthenticateGeneric, ICredentialTestRequest, ICredentialType, Ico
 import { USER_AGENT } from "../lib/api";
 
 /**
- * One API key from the ImageStep console (Settings → API keys). Sent as `Authorization: ApiKey …`
+ * One API key from the ImageStep console (Account → API keys). Sent as `Authorization: ApiKey …`
  * on every request. The credential test reads the key's own usage, a path only a valid key can: it used to list the op
  * catalogue, which is public, so a wrong or revoked key tested green (#569). The test sends the package's User-Agent like
  * every other request the node makes (#722).
@@ -24,7 +24,7 @@ export class ImageStepApi implements ICredentialType {
       typeOptions: { password: true },
       default: "",
       required: true,
-      description: "An ImageStep API key (console → Settings → API keys)"
+      description: "An ImageStep API key (console → Account → API keys)"
     },
     {
       displayName: "Base URL",

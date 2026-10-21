@@ -12,6 +12,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { NodeApiError, NodeOperationError, sleep } from "n8n-workflow";
 import type {
+  IBinaryData,
   IDataObject,
   IExecuteFunctions,
   IHookFunctions,
@@ -68,7 +69,7 @@ export const CREDENTIAL = "imageStepApi";
 // Every request this package makes names it, the credential test included (imagestep#722): the service logs it, so a key
 // whose only calls are GET /usage says it was this node's credential test. A literal because n8n's rules give a community
 // node no file access to read package.json at run time; the node and credential tests hold it to the package's version.
-export const USER_AGENT = "n8n-nodes-imagestep/0.1.4";
+export const USER_AGENT = "n8n-nodes-imagestep/0.1.5";
 const DEFAULT_BASE_URL = "https://api.imagestep.dev";
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
@@ -285,6 +286,42 @@ function toNodeApiError(ctx: Context, status: number, json: IDataObject | null, 
 
 // ── Assets ────────────────────────────────────────────────────────────────────────────────────
 
+/** Which field made the node read a binary — what the error says to change when the item carries none. */
+export type BinaryUse = "op" | "preset" | "upload";
+
+/**
+ * The binary property an item's image is read from — or, when the item has none, an error that says where the image
+ * should come from (imagestep#852). n8n's own assertBinaryData says only that the node "expects the node's input data to
+ * contain a binary file": what a new workflow's first run met — Manual Trigger → ImageStep, every default left alone —
+ * with no request reaching the service and no next step. Every read of an input binary goes through here.
+ */
+export function requireBinary(ctx: IExecuteFunctions, itemIndex: number, property: string, from: BinaryUse = "upload"): IBinaryData {
+  try {
+    return ctx.helpers.assertBinaryData(itemIndex, property);
+  } catch {
+    const ways =
+      from === "upload"
+        ? [
+            "Put a node that outputs a file before this one — an HTTP Request node with Response Format: File, or Read/Write Files from Disk. Manual Trigger outputs none.",
+            "For an image on the web, Asset → Upload From URL needs no file at all."
+          ]
+        : [
+            ...(from === "preset" ? ["The preset starts from a prompt (its first step is generate): set Input to None."] : []),
+            "The image is on the web: put an ImageStep node with Asset → Upload From URL before this one and set Input to Asset IDs (the expression {{ $json.assetId }}), or an HTTP Request node with Response Format: File.",
+            "The image is already in ImageStep: set Input to Asset IDs.",
+            ...(from === "op" ? ["To draw an image from text, choose the generate op: it needs no input image."] : [])
+          ];
+    const message =
+      from === "upload"
+        ? `Asset → Upload reads the binary property '${property}', but the incoming item has none`
+        : `Input is set to Binary File but the incoming item has no binary property '${property}'`;
+    throw new NodeOperationError(ctx.getNode(), message, {
+      itemIndex,
+      description: [...ways, `If the previous node does output a file under another name, set Binary Property to that name.`].join(" ")
+    });
+  }
+}
+
 /**
  * Upload the binary property of one input item: stage (presigned PUT) → PUT the bytes with the
  * binary's mime type → finish → (optionally) poll until ingest has written dimensions / metadata.
@@ -299,10 +336,11 @@ export async function uploadBinary(
     retentionDays,
     wait = true,
     waitSeconds = 120,
-    intervalMs
-  }: { collection?: string; retentionDays?: number; wait?: boolean; waitSeconds?: number; intervalMs?: number } = {}
+    intervalMs,
+    from = "upload"
+  }: { collection?: string; retentionDays?: number; wait?: boolean; waitSeconds?: number; intervalMs?: number; from?: BinaryUse } = {}
 ): Promise<Asset> {
-  const meta = ctx.helpers.assertBinaryData(itemIndex, binaryProperty);
+  const meta = requireBinary(ctx, itemIndex, binaryProperty, from);
   const buffer = await ctx.helpers.getBinaryDataBuffer(itemIndex, binaryProperty);
   const fileName = meta.fileName || `upload${meta.fileExtension ? `.${meta.fileExtension}` : ""}`;
   const mimeType = meta.mimeType || "application/octet-stream";

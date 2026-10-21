@@ -10,6 +10,8 @@ export interface OpEntry {
   syncEndpoint?: string | null;
   /** The op's parameters include a `prompt` (the static list only). */
   takesPrompt?: boolean;
+  /** The op runs with no input image — the catalogue's `requiresAssets: false` (the static list only). */
+  inputOptional?: boolean;
 }
 
 /**
@@ -27,6 +29,13 @@ export const STATIC_OPS: OpEntry[] = STATIC_OPS_JSON;
 
 /** Ops that take a prompt — decides when the Prompt field is shown. From the catalogue, like the list itself (#767). */
 export const PROMPT_OPS = STATIC_OPS.filter((o) => o.takesPrompt).map((o) => o.op);
+
+/**
+ * Ops that draw from the prompt alone (generate): Input Binary File on an item with no file runs them as Input None
+ * (#852) — the first thing a new workflow does is put this node after Manual Trigger, which outputs no file, and pick
+ * generate without touching Input. An op that needs an image (edit, analyze) still stops, saying where to get one.
+ */
+export const PROMPT_ONLY_OPS = STATIC_OPS.filter((o) => o.takesPrompt && o.inputOptional).map((o) => o.op);
 
 /** Kinds the dropdown lists; `sync` ops (read_metadata) are answered by Asset → Get, not by a job. */
 const JOB_KINDS = new Set(["ai", "deterministic"]);

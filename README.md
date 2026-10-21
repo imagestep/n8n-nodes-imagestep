@@ -20,14 +20,16 @@ Zero runtime dependencies: every request goes through n8n's own HTTP helpers.
 
 ## Installation
 
-In n8n: **Settings → Community Nodes → Install**, enter `n8n-nodes-imagestep`, accept the risk
-prompt, install. Self-hosted from a shell:
+The node is verified by n8n. On n8n Cloud, and in the editor of a recent self-hosted n8n: click
+**+** on the canvas, search **ImageStep** in the nodes panel, pick the one with the verified badge,
+**Install**. A self-hosted n8n can also install it from **Settings → Community Nodes → Install**
+(enter `n8n-nodes-imagestep`, accept the risk prompt), or from a shell:
 
 ```sh
 npm install n8n-nodes-imagestep
 ```
 
-Then restart n8n; **ImageStep** and **ImageStep Trigger** appear in the node picker. Follow the
+After a shell install, restart n8n; **ImageStep** and **ImageStep Trigger** appear in the node picker. Follow the
 [n8n community nodes guide](https://docs.n8n.io/integrations/community-nodes/installation/) for
 the details of your deployment.
 
@@ -37,7 +39,7 @@ Create an **ImageStep API** credential:
 
 | Field | Value |
 |---|---|
-| API Key | an API key from the ImageStep console (Settings → API keys) |
+| API Key | an API key from the ImageStep console (Account → API keys) |
 | Base URL | `https://api.imagestep.dev` — change only for a self-hosted or staging ImageStep |
 
 The credential test reads the key's own usage (`GET /api/v1/usage`), which only a valid key can: a

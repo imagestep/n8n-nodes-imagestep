@@ -397,6 +397,15 @@ export const properties: INodeProperties[] = [
   },
 
   // ── Operation ──
+  // imagestep#852 — Input defaults to Binary File, and the node a new workflow starts from (Manual Trigger) outputs no file.
+  {
+    displayName:
+      "Input comes from one of three places: Binary File — a file the previous node outputs (Manual Trigger outputs none; HTTP Request with Response Format: File does); Asset IDs — images already in ImageStep, or fetched by Asset → Upload From URL; None — generate, from the prompt alone.",
+    name: "inputNotice",
+    type: "notice",
+    default: "",
+    ...show("op", "run")
+  },
   {
     displayName: "Op Name or ID",
     name: "op",

@@ -3,7 +3,8 @@
     "op": "generate",
     "kind": "ai",
     "description": "Text → image. Returns one asset per generated image.",
-    "takesPrompt": true
+    "takesPrompt": true,
+    "inputOptional": true
   },
   {
     "op": "edit",
@@ -120,6 +121,7 @@
   {
     "op": "render_template",
     "kind": "deterministic",
-    "description": "Render an HTML/CSS template once per item of data → one PNG asset per item. Templates: POST /api/v1/templates ({{ var }} placeholders, HTML-escaped; {{{ var }}} raw)."
+    "description": "Render an HTML/CSS template once per item of data → one PNG asset per item. Templates: POST /api/v1/templates ({{ var }} placeholders, HTML-escaped; {{{ var }}} raw).",
+    "inputOptional": true
   }
 ]

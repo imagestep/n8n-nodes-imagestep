@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import * as api from "../lib/api.ts";
 import { ImageStep } from "../nodes/ImageStep/ImageStep.node.ts";
+import { properties } from "../nodes/ImageStep/description.ts";
 import { fakeContext, fail, ok } from "./fake-context.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -319,7 +320,7 @@ describe("ImageStep node — Operation → Run", () => {
 
       // The binary still has to be there, as it would for the run.
       const missing = fakeContext({ routes: jobRoutes({}), binary: {}, params: { ...params, inputMode: "binary", dryRun: true } });
-      await expect(new ImageStep().execute.call(missing)).rejects.toThrow(/no binary data/);
+      await expect(new ImageStep().execute.call(missing)).rejects.toThrow(/has no binary property 'data'/);
       expect(missing.calls).toEqual([]);
     }
   });
@@ -428,6 +429,90 @@ describe("ImageStep node — Operation → Run", () => {
     // No envelope, no code (#766): not internal_error, which the service did not say.
     expect(fromHeader).toMatchObject({ code: null, retryable: true, requestId: "req-header" });
     expect(fromHeader.message).toMatch(/^ImageStep HTTP 502: /);
+  });
+});
+
+/**
+ * The parameters a node dragged onto the canvas has before anyone touches it: each field's default, for every field the
+ * defaults already chosen show — what n8n hands `getNodeParameter`. `overrides` are the fields a person did change.
+ */
+function editorDefaults(overrides = {}) {
+  const values = { ...overrides };
+  for (let pass = 0; pass < 4; pass++) {
+    for (const p of properties) {
+      if (p.type === "notice" || p.name in values) continue;
+      const show = p.displayOptions?.show || {};
+      if (Object.entries(show).every(([k, allowed]) => k in values && allowed.includes(values[k]))) values[p.name] = p.default;
+    }
+  }
+  return values;
+}
+
+// imagestep#852 — Manual Trigger → ImageStep, nothing changed, Execute step: the item carries no file. It used to stop on
+// n8n's own "expects the node's input data to contain a binary file" with nothing reaching the service and no next step.
+describe("an item with no file (#852)", () => {
+  it("the defaults are remove_bg over a Binary File", () => {
+    expect(editorDefaults()).toMatchObject({
+      resource: "op",
+      operation: "run",
+      op: "remove_bg",
+      inputMode: "binary",
+      binaryProperty: "data"
+    });
+  });
+
+  it("with every default, stops before any request, saying where the image should come from", async () => {
+    const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults() });
+    const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+    expect(error.constructor.name).toBe("NodeOperationError");
+    expect(error.message).toBe("Input is set to Binary File but the incoming item has no binary property 'data'");
+    expect(error.description).toContain("Asset → Upload From URL");
+    expect(error.description).toContain("set Input to Asset IDs");
+    expect(error.description).toContain("Response Format: File");
+    expect(error.description).toContain("choose the generate op");
+    expect(ctx.calls).toHaveLength(0);
+  });
+
+  it("the same with Store Result on or Dry Run: the job path asks the same question first", async () => {
+    for (const changed of [{ storeResult: true }, { dryRun: true }]) {
+      const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults(changed) });
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.message).toMatch(/^Input is set to Binary File/);
+      expect(ctx.calls).toHaveLength(0);
+    }
+  });
+
+  it("generate left on Binary File runs from the prompt, as Input None would", async () => {
+    const seen = {};
+    const ctx = fakeContext({ routes: jobRoutes(seen), params: editorDefaults({ op: "generate", prompt: "a red bicycle", wait: false }) });
+    expect(ctx.getNodeParameter("inputMode", 0)).toBe("binary");
+    await new ImageStep().execute.call(ctx);
+    expect(seen.job).toEqual({ op: "generate", prompt: "a red bicycle", count: 1 });
+    expect(ctx.calls.some((c) => new URL(c.url).pathname === "/api/v1/assets/stage-upload")).toBe(false);
+  });
+
+  it("edit and analyze need an image: they stop with the same guidance, and submit nothing", async () => {
+    for (const op of ["edit", "analyze"]) {
+      const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ op, prompt: "make it blue" }) });
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.message).toBe("Input is set to Binary File but the incoming item has no binary property 'data'");
+      expect(error.description).toContain("Asset → Upload From URL");
+      expect(ctx.calls).toHaveLength(0);
+    }
+  });
+
+  it("a preset says Input None is how one starts from a prompt; Asset → Upload says which node to put first", async () => {
+    const preset = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ resource: "preset", preset: "remove-bg" }) });
+    const fromPreset = await new ImageStep().execute.call(preset).catch((e) => e);
+    expect(fromPreset.message).toMatch(/^Input is set to Binary File/);
+    expect(fromPreset.description).toContain("set Input to None");
+    expect(preset.calls).toHaveLength(0);
+
+    const upload = fakeContext({ routes: uploadRoutes({}), params: editorDefaults({ resource: "asset", operation: "upload" }) });
+    const fromUpload = await new ImageStep().execute.call(upload).catch((e) => e);
+    expect(fromUpload.message).toBe("Asset → Upload reads the binary property 'data', but the incoming item has none");
+    expect(fromUpload.description).toContain("HTTP Request node with Response Format: File");
+    expect(upload.calls).toHaveLength(0);
   });
 });
 

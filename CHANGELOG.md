@@ -4,9 +4,12 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
-## Unreleased
+## 0.1.5 — 2026-10-21
 
 ### Changed
+
+- The API Key field's hint says where a key comes from: the console's Account → API keys. It said Settings → API keys,
+  and the console has no Settings.
 
 - A file the API will not stage fails the node with the API's own code: `unsupported_format` (not an image),
   `payload_too_large` (over 100 MB) or `invalid_param` (no size), each naming its parameter. It used to say
@@ -22,6 +25,12 @@ and before 1.0 a minor version may change the interface.
 
 ### Fixed
 
+- An item with no file on Input Binary File — the default, and what a new workflow's first run hands it after Manual
+  Trigger — stops the node with what to do instead: where the image can come from (Asset → Upload From URL or an HTTP
+  Request node with Response Format: File, then Input Asset IDs), and that generate needs none. It used to stop on
+  n8n's own "expects the node's input data to contain a binary file" with no next step. On generate such an item now
+  runs from the prompt, as Input None would; edit and analyze, which need an image, still stop. A notice above the Op
+  field says where each kind of input comes from.
 - A Binary File input whose ingest failed — not an image the service can read, say — is now that item's error, with
   the upload's `code` and `retryable`, and no job is submitted on it. The job used to be accepted and fail item by item.
 - Asset references carry `error` on a `FAILED` asset (Asset → Upload, Get, List): why ingest failed, and whether

@@ -10,7 +10,7 @@ import type {
 } from "n8n-workflow";
 import * as api from "../../lib/api";
 import type { Failure } from "../../lib/api";
-import { STATIC_OPS, toOpOptions } from "../../lib/ops";
+import { PROMPT_ONLY_OPS, STATIC_OPS, toOpOptions } from "../../lib/ops";
 import { assetRef, buildOpJobBody, buildPresetJobBody, jobRef, normaliseIds, parseParameters } from "../../lib/refs";
 import type { Job, JobBody } from "../../lib/refs";
 import { properties } from "./description";
@@ -168,10 +168,15 @@ async function runOne(ctx: IExecuteFunctions, resource: string, operation: strin
     !ctx.getNodeParameter("storeResult", i, false) &&
     !ctx.getNodeParameter("dryRun", i, false)
   ) {
+    const op = ctx.getNodeParameter("op", i) as string;
+    // An item with no file stops here, before the catalogue is read (#852): nothing it could run needs the service.
+    if (ctx.getNodeParameter("inputMode", i, "binary") === "binary" && !PROMPT_ONLY_OPS.includes(op)) {
+      api.requireBinary(ctx, i, ctx.getNodeParameter("binaryProperty", i, "data") as string, "op");
+    }
     // Store Result off (the default) means: transform the binary we were handed and give the result straight back. No
     // asset, no publish, no polling — and, crucially, nothing of the customer's is made world-readable just so the
     // workflow can read its own output, which is what the job path had to do (publish → fetch from the CDN).
-    const sync = await runSyncOp(ctx, i, ctx.getNodeParameter("op", i) as string, lanes);
+    const sync = await runSyncOp(ctx, i, op, lanes);
     if (sync) return sync;
   }
   return lanes.serial(async () => {
@@ -257,7 +262,7 @@ async function runQueued(ctx: IExecuteFunctions, resource: string, operation: st
   if (resource === "op" && operation === "run") {
     const op = p<string>("op");
     const options = p<RunOptions>("options", {});
-    const input = await resolveInputAssets(ctx, i, options);
+    const input = await resolveInputAssets(ctx, i, options, op);
     const body = buildOpJobBody({
       op,
       assetIds: input.assetIds,
@@ -315,17 +320,27 @@ async function runQueued(ctx: IExecuteFunctions, resource: string, operation: st
 async function resolveInputAssets(
   ctx: IExecuteFunctions,
   i: number,
-  { collection, retentionDays }: RunOptions = {}
+  { collection, retentionDays }: RunOptions = {},
+  op?: string
 ): Promise<{ assetIds: string[]; imageCount?: number }> {
   const mode = ctx.getNodeParameter("inputMode", i, "binary");
   if (mode === "assetIds") return { assetIds: normaliseIds(ctx.getNodeParameter("assetIds", i, "")) };
   if (mode === "binary") {
     const property = ctx.getNodeParameter("binaryProperty", i, "data") as string;
+    const from = op ? "op" : "preset";
+    // generate left on Binary File after a node with no file draws from the prompt, as Input None would (#852).
+    if (op && PROMPT_ONLY_OPS.includes(op)) {
+      try {
+        ctx.helpers.assertBinaryData(i, property);
+      } catch {
+        return { assetIds: [] };
+      }
+    }
     if (ctx.getNodeParameter("dryRun", i, false)) {
-      ctx.helpers.assertBinaryData(i, property);
+      api.requireBinary(ctx, i, property, from);
       return { assetIds: [], imageCount: 1 };
     }
-    const asset = await api.uploadBinary(ctx, i, property, { collection, retentionDays, wait: true });
+    const asset = await api.uploadBinary(ctx, i, property, { collection, retentionDays, wait: true, from });
     // Taken, then ingest FAILED (#759): a job on it would be accepted and fail item by item, with another code and the
     // job's `retryable` in place of the asset's, which says whether uploading the file again can help (#734).
     if (asset.status === "FAILED") {
@@ -430,7 +445,7 @@ async function syncInput(
   const mode = p("inputMode", "binary");
   if (mode === "binary") {
     const property = p("binaryProperty", "data");
-    const meta = ctx.helpers.assertBinaryData(i, property);
+    const meta = api.requireBinary(ctx, i, property, "op");
     return {
       body: await ctx.helpers.getBinaryDataBuffer(i, property),
       contentType: meta.mimeType || "application/octet-stream",
