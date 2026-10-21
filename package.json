@@ -34,12 +34,12 @@
     ]
   },
   "devDependencies": {
-    "@types/node": "^22.20.5",
-    "@vitest/coverage-v8": "^5.0.3",
+    "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.0.4",
     "n8n-workflow": "^2.16.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
