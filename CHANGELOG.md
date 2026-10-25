@@ -4,6 +4,16 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## 0.1.6 — 2026-10-25
+
+### Changed
+
+- Every execution reads the op catalogue (`GET /api/v1/ops`) once at its start, whatever the node is set to and before
+  it checks anything itself, and says so with an `X-ImageStep-Context: execute` header; the Op and Preset dropdowns
+  send `X-ImageStep-Context: load-options`. ImageStep's usage log keeps which it was, so support can tell a node that
+  ran and stopped inside n8n — an item with no file, say, which in 0.1.5 sent no request at all — from one that was
+  only opened. Nothing else is sent, and a catalogue that cannot be read still never stops the execution.
+
 ## 0.1.5 — 2026-10-21
 
 ### Changed

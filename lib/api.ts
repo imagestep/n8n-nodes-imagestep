@@ -3,7 +3,8 @@
  * (`httpRequestWithAuthentication` for the API, `httpRequest` for storage PUTs and CDN GETs) —
  * no runtime dependency, no `fetch` of our own — and every API call:
  *   - unwraps the `{success, data, error, meta}` envelope (docs/api-contract.md §1),
- *   - sends an `Idempotency-Key` on writes (§3) and the package User-Agent,
+ *   - sends an `Idempotency-Key` on writes (§3) and the package User-Agent — and on the catalogue reads, which
+ *     call this is (`X-ImageStep-Context`, {@link CallerContext}),
  *   - turns an error body into a NodeApiError carrying `code`, `param` and `retryable` (§2).
  *
  * Functions take the n8n context (`this` of execute / loadOptions / hook / webhook) as `ctx`.
@@ -69,7 +70,7 @@ export const CREDENTIAL = "imageStepApi";
 // Every request this package makes names it, the credential test included (imagestep#722): the service logs it, so a key
 // whose only calls are GET /usage says it was this node's credential test. A literal because n8n's rules give a community
 // node no file access to read package.json at run time; the node and credential tests hold it to the package's version.
-export const USER_AGENT = "n8n-nodes-imagestep/0.1.5";
+export const USER_AGENT = "n8n-nodes-imagestep/0.1.6";
 const DEFAULT_BASE_URL = "https://api.imagestep.dev";
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
@@ -129,6 +130,14 @@ export function idempotencyKey(ctx: Context, method: string, path: string, body:
   return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
 }
 
+/**
+ * Why the node read the op catalogue, sent as `X-ImageStep-Context` (imagestep#873): `execute` — once at the start of
+ * every execution, before any check of its own — or `load-options`, a dropdown being filled. The service puts it on
+ * its usage line, so "executed, then failed inside n8n" (an `execute` read and no POST after it) is told apart from
+ * "opened the node, never executed it" (only `load-options` reads). Nothing else goes with it.
+ */
+export type CallerContext = "execute" | "load-options";
+
 async function baseUrl(ctx: Context): Promise<string> {
   const creds = await ctx.getCredentials(CREDENTIAL);
   return String(creds?.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -139,16 +148,25 @@ async function baseUrl(ctx: Context): Promise<string> {
  * {@link withRetries}.
  * @param ctx n8n function context
  * @param path `/api/v1/...`
- * @param opts `itemIndex` — the input item this write is for, which the key is derived from ({@link idempotencyKey})
+ * @param opts `itemIndex` — the input item this write is for, which the key is derived from ({@link idempotencyKey});
+ *   `context` — why a catalogue is read ({@link CallerContext})
  */
 async function apiRequest<T = unknown>(
   ctx: Context,
   method: IHttpRequestMethods,
   path: string,
-  opts: { body?: IHttpRequestOptions["body"]; qs?: IDataObject; idempotencyKey?: string; itemIndex?: number; timeoutMs?: number } = {}
+  opts: {
+    body?: IHttpRequestOptions["body"];
+    qs?: IDataObject;
+    idempotencyKey?: string;
+    itemIndex?: number;
+    timeoutMs?: number;
+    context?: CallerContext;
+  } = {}
 ): Promise<{ data: T; meta?: PageMeta; replayed: boolean }> {
   const isWrite = method !== "GET" && method !== "HEAD";
   const headers: IDataObject = { Accept: "application/json", "User-Agent": USER_AGENT };
+  if (opts.context) headers["X-ImageStep-Context"] = opts.context;
   if (isWrite) headers["Idempotency-Key"] = opts.idempotencyKey || idempotencyKey(ctx, method, path, opts.body, opts.itemIndex);
   const request: IHttpRequestOptions = {
     method,
@@ -218,8 +236,8 @@ export async function apiRequestBinary(
 }
 
 /** Which ops the API says may run synchronously — the catalogue {@link listOps} reads. Read, never hard-coded. */
-export async function syncEndpoints(ctx: Context): Promise<Record<string, string | null>> {
-  return Object.fromEntries((await listOps(ctx)).map((o) => [o.op, o.syncEndpoint || null]));
+export async function syncEndpoints(ctx: Context, context: CallerContext): Promise<Record<string, string | null>> {
+  return Object.fromEntries((await listOps(ctx, context)).map((o) => [o.op, o.syncEndpoint || null]));
 }
 
 function parseBody(body: unknown): IDataObject | null {
@@ -704,8 +722,8 @@ export async function downloadOutput(ctx: Context, asset: Asset): Promise<{ buff
 
 // ── Catalogues (design-time dropdowns) ─────────────────────────────────────────────────────────
 
-export async function listOps(ctx: Context): Promise<OpEntry[]> {
-  return (await apiRequest<OpEntry[] | null>(ctx, "GET", "/api/v1/ops")).data || [];
+export async function listOps(ctx: Context, context: CallerContext): Promise<OpEntry[]> {
+  return (await apiRequest<OpEntry[] | null>(ctx, "GET", "/api/v1/ops", { context })).data || [];
 }
 
 /** A preset as the dropdown shows it. */
@@ -719,8 +737,8 @@ export interface Preset {
 
 export async function listPresets(ctx: Context): Promise<Preset[]> {
   const [builtin, user] = await Promise.all([
-    apiRequest<Preset[] | null>(ctx, "GET", "/api/v1/presets", { qs: { filter: "builtin" } }),
-    apiRequest<Preset[] | null>(ctx, "GET", "/api/v1/presets", { qs: { filter: "user" } })
+    apiRequest<Preset[] | null>(ctx, "GET", "/api/v1/presets", { qs: { filter: "builtin" }, context: "load-options" }),
+    apiRequest<Preset[] | null>(ctx, "GET", "/api/v1/presets", { qs: { filter: "user" }, context: "load-options" })
   ]);
   return [...(builtin.data || []), ...(user.data || [])];
 }

@@ -73,7 +73,7 @@ export class ImageStep implements INodeType {
       /** Live op catalogue (`GET /api/v1/ops`), static list when the request fails. */
       async getOps(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
         try {
-          const options = toOpOptions(await api.listOps(this));
+          const options = toOpOptions(await api.listOps(this, "load-options"));
           return options.length ? options : toOpOptions(STATIC_OPS);
         } catch {
           return toOpOptions(STATIC_OPS);
@@ -95,10 +95,15 @@ export class ImageStep implements INodeType {
     const items = this.getInputData();
     const resource = this.getNodeParameter("resource", 0) as string;
     const operation = this.getNodeParameter("operation", 0) as string;
-    // Per execution, not per item (#523): the op catalogue is read at most once — it was one `GET /api/v1/ops` per item.
-    let catalogue: Promise<Record<string, string | null>> | undefined;
+    // Per execution, not per item (#523): the op catalogue is read once — it was one `GET /api/v1/ops` per item. And
+    // read first, whatever the node is set to and before any check of its own (#873): this read, marked `execute`, is
+    // the trace an execution leaves on the service even when it then stops inside n8n — an item with no file stops
+    // before anything else is sent (#852). It runs beside the items, never in their way: a catalogue that cannot be
+    // read only sends op:run down the job path, as before.
+    const catalogue = api.syncEndpoints(this, "execute");
+    catalogue.catch(() => {}); // settled below; an item that never asks for it must not leave a rejection unhandled
     const lanes: Lanes = {
-      syncEndpoints: () => (catalogue ??= api.syncEndpoints(this)),
+      syncEndpoints: () => catalogue,
       serial: serialLane(),
       // Set by the failing item itself, before its turn on the serial lane passes to the next one.
       halted: false
@@ -145,6 +150,7 @@ export class ImageStep implements INodeType {
       }
     };
     await Promise.all(Array.from({ length: Math.min(ITEM_CONCURRENCY, items.length) }, worker));
+    await catalogue.catch(() => {}); // the execution ends with its read answered, a local failure included
     if (failure) throw failure;
     return [results.flat().filter(Boolean)];
   }
@@ -169,7 +175,8 @@ async function runOne(ctx: IExecuteFunctions, resource: string, operation: strin
     !ctx.getNodeParameter("dryRun", i, false)
   ) {
     const op = ctx.getNodeParameter("op", i) as string;
-    // An item with no file stops here, before the catalogue is read (#852): nothing it could run needs the service.
+    // An item with no file stops here (#852): nothing it could run needs the service, so the execution's catalogue
+    // read, sent before any item started (#873), is all that reaches it.
     if (ctx.getNodeParameter("inputMode", i, "binary") === "binary" && !PROMPT_ONLY_OPS.includes(op)) {
       api.requireBinary(ctx, i, ctx.getNodeParameter("binaryProperty", i, "data") as string, "op");
     }

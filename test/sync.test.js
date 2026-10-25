@@ -270,6 +270,7 @@ describe("many items", () => {
     });
     const [out] = await ImageStep.prototype.execute.call(ctx);
     expect(ctx.calls.filter((c) => new URL(c.url).pathname === "/api/v1/ops")).toHaveLength(1);
+    expect(ctx.calls[0].headers["X-ImageStep-Context"]).toBe("execute"); // first, before any item's request (#873)
     expect(widest).toBe(ITEM_CONCURRENCY);
     expect(out.map((o) => o.pairedItem.item)).toEqual([...Array(20).keys()]);
   });

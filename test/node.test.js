@@ -11,6 +11,14 @@ const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url),
 const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
 const sha1 = createHash("sha1").update(png).digest("hex");
 
+/** The calls after the execution's catalogue read (#873), which every execution sends first, whatever it is set to. */
+function afterCatalogue(ctx) {
+  const [first, ...rest] = ctx.calls;
+  expect(`${first?.method} ${first && new URL(first.url).pathname}`).toBe("GET /api/v1/ops");
+  expect(first.headers["X-ImageStep-Context"]).toBe("execute");
+  return rest;
+}
+
 /** Routes for the whole upload flow: stage → PUT → finish → poll (PROCESSING once, then DONE). */
 function uploadRoutes(seen) {
   let polls = 0;
@@ -292,7 +300,7 @@ describe("ImageStep node — Operation → Run", () => {
       request: { op: "remove_bg", assetIds: ["ast1", "ast2"] },
       estimate: { type: "ai-remove-bg", totalItems: 2, costPerItem: 5, estimatedCredits: 10, sufficientCredit: true }
     });
-    expect(ctx.calls).toHaveLength(1);
+    expect(afterCatalogue(ctx)).toHaveLength(1);
   });
 
   // #572 → #586: pricing a binary used to mean uploading it — a dry run that left an asset behind. It is priced by count.
@@ -316,12 +324,12 @@ describe("ImageStep node — Operation → Run", () => {
       const [out] = await new ImageStep().execute.call(ctx);
       expect(seen.dryRun).toBe("true");
       expect(out[0].json.request).toEqual(request);
-      expect(ctx.calls).toHaveLength(1); // the dry run, and no upload before it
+      expect(afterCatalogue(ctx)).toHaveLength(1); // the dry run, and no upload before it
 
       // The binary still has to be there, as it would for the run.
       const missing = fakeContext({ routes: jobRoutes({}), binary: {}, params: { ...params, inputMode: "binary", dryRun: true } });
       await expect(new ImageStep().execute.call(missing)).rejects.toThrow(/has no binary property 'data'/);
-      expect(missing.calls).toEqual([]);
+      expect(afterCatalogue(missing)).toEqual([]);
     }
   });
 
@@ -450,6 +458,8 @@ function editorDefaults(overrides = {}) {
 
 // imagestep#852 — Manual Trigger → ImageStep, nothing changed, Execute step: the item carries no file. It used to stop on
 // n8n's own "expects the node's input data to contain a binary file" with nothing reaching the service and no next step.
+// imagestep#873 — and with the fix, nothing reached the service at all: an execution stopped this way must still leave
+// its one catalogue read, marked `execute`, so the service tells it from a node that was only opened.
 describe("an item with no file (#852)", () => {
   it("the defaults are remove_bg over a Binary File", () => {
     expect(editorDefaults()).toMatchObject({
@@ -461,7 +471,7 @@ describe("an item with no file (#852)", () => {
     });
   });
 
-  it("with every default, stops before any request, saying where the image should come from", async () => {
+  it("with every default, sends only the execution's catalogue read, then stops saying where the image should come from", async () => {
     const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults() });
     const error = await new ImageStep().execute.call(ctx).catch((e) => e);
     expect(error.constructor.name).toBe("NodeOperationError");
@@ -470,7 +480,9 @@ describe("an item with no file (#852)", () => {
     expect(error.description).toContain("set Input to Asset IDs");
     expect(error.description).toContain("Response Format: File");
     expect(error.description).toContain("choose the generate op");
-    expect(ctx.calls).toHaveLength(0);
+    expect(ctx.calls).toHaveLength(1);
+    expect(ctx.calls[0]).toMatchObject({ via: "auth", method: "GET", url: "https://api.test/api/v1/ops" });
+    expect(ctx.calls[0].headers["X-ImageStep-Context"]).toBe("execute");
   });
 
   it("the same with Store Result on or Dry Run: the job path asks the same question first", async () => {
@@ -478,7 +490,7 @@ describe("an item with no file (#852)", () => {
       const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults(changed) });
       const error = await new ImageStep().execute.call(ctx).catch((e) => e);
       expect(error.message).toMatch(/^Input is set to Binary File/);
-      expect(ctx.calls).toHaveLength(0);
+      expect(afterCatalogue(ctx)).toEqual([]);
     }
   });
 
@@ -497,7 +509,7 @@ describe("an item with no file (#852)", () => {
       const error = await new ImageStep().execute.call(ctx).catch((e) => e);
       expect(error.message).toBe("Input is set to Binary File but the incoming item has no binary property 'data'");
       expect(error.description).toContain("Asset → Upload From URL");
-      expect(ctx.calls).toHaveLength(0);
+      expect(afterCatalogue(ctx)).toEqual([]);
     }
   });
 
@@ -506,13 +518,13 @@ describe("an item with no file (#852)", () => {
     const fromPreset = await new ImageStep().execute.call(preset).catch((e) => e);
     expect(fromPreset.message).toMatch(/^Input is set to Binary File/);
     expect(fromPreset.description).toContain("set Input to None");
-    expect(preset.calls).toHaveLength(0);
+    expect(afterCatalogue(preset)).toEqual([]);
 
     const upload = fakeContext({ routes: uploadRoutes({}), params: editorDefaults({ resource: "asset", operation: "upload" }) });
     const fromUpload = await new ImageStep().execute.call(upload).catch((e) => e);
     expect(fromUpload.message).toBe("Asset → Upload reads the binary property 'data', but the incoming item has none");
     expect(fromUpload.description).toContain("HTTP Request node with Response Format: File");
-    expect(upload.calls).toHaveLength(0);
+    expect(afterCatalogue(upload)).toEqual([]);
   });
 });
 
@@ -726,6 +738,11 @@ describe("ImageStep node — Preset, Job, Asset", () => {
       { name: "util-to-webp", value: "builtin-util-to-webp", description: "built-in · to webp" },
       { name: "shop-hero", value: "p_1", description: "yours" }
     ]);
+    // A dropdown being filled says so (#873): the service tells "opened the node" from "executed it" by this header.
+    for (const ctx of [live, down, presets]) {
+      expect(ctx.calls.length).toBeGreaterThan(0);
+      expect(ctx.calls.map((c) => c.headers["X-ImageStep-Context"])).toEqual(ctx.calls.map(() => "load-options"));
+    }
   });
 });
 
