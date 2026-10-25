@@ -157,9 +157,9 @@ Every delivery is verified before the workflow runs: `ImageStep-Signature: t=<ep
 is HMAC-SHA256 over `"<t>.<raw body>"` with the stored secret, the timestamp must be within
 **Signature Tolerance** (default 300 s, the replay guard), and comparison is constant-time. A
 delivery that fails is answered `401` and never reaches the workflow. A good one is answered
-`200` immediately and emits one item: `{ id, type, createdAt, attempt, data }` where `data` is
-the event payload (`jobId`, `type`, `status`, `totalItems`, `completedItems`, `failedItems`,
-`creditsCharged`). Deduplicate on `id` if you must be exactly-once — the API retries
+`200` immediately and emits one item: `{ id, type, apiVersion, createdAt, attempt, data }` — the
+event as the API sent it, plus the delivery's `attempt`. What each event type's `data` holds is on
+https://imagestep.dev/docs/webhooks#events. Deduplicate on `id` if you must be exactly-once — the API retries
 un-acknowledged deliveries for 24 h.
 
 Two things to know:

@@ -4,6 +4,13 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## 0.1.7 — 2026-10-25
+
+### Fixed
+
+- The trigger's items carry `apiVersion`. 0.1.5 said they did, and the API has sent it with every event since, but the
+  node left it out of the item.
+
 ## 0.1.6 — 2026-10-25
 
 ### Changed

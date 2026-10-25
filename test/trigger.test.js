@@ -3,7 +3,13 @@ import { ImageStepTrigger } from "../nodes/ImageStepTrigger/ImageStepTrigger.nod
 import { fakeContext, fail, ok, signBody } from "./fake-context.js";
 
 const secret = "whsec_test";
-const event = { id: "evt_1", type: "job.completed", createdAt: "2026-09-08T07:11:00Z", data: { jobId: "job_1", status: "COMPLETED" } };
+const event = {
+  id: "evt_1",
+  type: "job.completed",
+  apiVersion: "v1",
+  createdAt: "2026-09-08T07:11:00Z",
+  data: { jobId: "job_1", status: "COMPLETED" }
+};
 
 /** A delivery context: raw body on the request, headers as n8n lowercases them, a recording response. */
 function delivery({ rawBody, header, staticData = { webhookId: "wh_1", webhookSecret: secret }, body }) {
@@ -33,13 +39,14 @@ describe("ImageStep Trigger — delivery", () => {
   const trigger = new ImageStepTrigger();
   const raw = Buffer.from(JSON.stringify(event));
 
-  it("verifies the signature over the raw body and emits id / type / createdAt / attempt / data", async () => {
+  it("verifies the signature over the raw body and emits id / type / apiVersion / createdAt / attempt / data", async () => {
     const ctx = delivery({ rawBody: raw, header: signBody(raw, secret) });
     const out = await trigger.webhook.call(ctx);
     expect(ctx.response.statusCode).toBeNull();
-    expect(out.workflowData[0][0].json).toEqual({
+    expect(out.workflowData[0][0].json).toStrictEqual({
       id: "evt_1",
       type: "job.completed",
+      apiVersion: "v1",
       createdAt: event.createdAt,
       attempt: 2,
       data: event.data
