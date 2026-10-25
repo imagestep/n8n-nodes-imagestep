@@ -159,7 +159,7 @@ is HMAC-SHA256 over `"<t>.<raw body>"` with the stored secret, the timestamp mus
 delivery that fails is answered `401` and never reaches the workflow. A good one is answered
 `200` immediately and emits one item: `{ id, type, apiVersion, createdAt, attempt, data }` — the
 event as the API sent it, plus the delivery's `attempt`. What each event type's `data` holds is on
-https://imagestep.dev/docs/webhooks#events. Deduplicate on `id` if you must be exactly-once — the API retries
+https://imagestep.dev/docs/webhooks?utm_source=npm&utm_medium=node-readme#events. Deduplicate on `id` if you must be exactly-once — the API retries
 un-acknowledged deliveries for 24 h.
 
 Two things to know:
