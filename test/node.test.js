@@ -611,6 +611,19 @@ describe("Input None or Asset IDs that cannot be what the op needs (#901)", () =
     expect(afterCatalogue(publish)).toEqual([]);
   });
 
+  it("an empty Prompt on generate or edit — an expression that resolved to nothing — stops, naming chatInput", async () => {
+    for (const [op, input] of [
+      ["generate", { inputMode: "none" }],
+      ["edit", { inputMode: "assetIds", assetIds: "ast_1" }]
+    ]) {
+      const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ op, ...input, prompt: " " }) });
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.message).toBe(`Prompt is empty, and '${op}' needs one`);
+      expect(error.description).toContain("{{ $json.chatInput }}");
+      expect(afterCatalogue(ctx)).toEqual([]);
+    }
+  });
+
   it("ast_ ids — as a list or an array an expression made — are submitted as before", async () => {
     for (const assetIds of ["ast_x, ast_y", ["ast_x", "ast_y"]]) {
       const seen = {};
@@ -1019,7 +1032,7 @@ describe("retries and idempotency keys (#521)", () => {
     calls = 0;
     const sync = fakeContext({
       routes: {
-        "GET /api/v1/ops": () => ok([{ op: "resize", syncEndpoint: "/api/v1/images/transform" }]),
+        "GET /api/v1/ops": () => ok([{ op: "resize", syncEndpoint: "POST /api/v1/images/transform" }]),
         "POST /api/v1/images/transform": () => (
           calls++,
           {

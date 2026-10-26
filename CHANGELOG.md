@@ -4,6 +4,18 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## 0.1.9 — 2026-10-26
+
+### Fixed
+
+- An empty Prompt on `generate` or `edit` stops in the node — most often an expression that resolved to nothing for
+  the item — and says so, naming `{{ $json.chatInput }}`, where a Chat Trigger puts its text. It used to submit the job,
+  which the API refused for its missing prompt.
+- `render_template` runs. With Store Result off and a Binary File or one Asset ID it was sent to the synchronous
+  transform endpoint, which answers it with a 400 (its synchronous form is `POST /api/v1/images/render`); it now runs as
+  a job. And left on Binary File after a node with no file, it runs as Input None does, as `generate` already did —
+  it used to stop asking for an image it never reads.
+
 ## 0.1.8 — 2026-10-26
 
 ### Fixed

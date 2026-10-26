@@ -10,7 +10,7 @@ import type {
 } from "n8n-workflow";
 import * as api from "../../lib/api";
 import type { Failure } from "../../lib/api";
-import { NEEDS_IMAGE_OPS, PROMPT_ONLY_OPS, STATIC_OPS, toOpOptions } from "../../lib/ops";
+import { INPUT_OPTIONAL_OPS, NEEDS_IMAGE_OPS, PROMPT_REQUIRED_OPS, STATIC_OPS, toOpOptions } from "../../lib/ops";
 import { assetRef, buildOpJobBody, buildPresetJobBody, jobRef, normaliseIds, parseParameters } from "../../lib/refs";
 import type { Job, JobBody } from "../../lib/refs";
 import { properties } from "./description";
@@ -180,10 +180,19 @@ async function runOne(ctx: IExecuteFunctions, resource: string, operation: strin
           "To draw an image from text, set Op to generate and put the text in Prompt. To process an image, set Input to Binary File (a file the previous node outputs) or Asset IDs (images already in ImageStep)."
       });
     }
+    // An empty Prompt is the same kind of request (#901): the service refuses generate and edit without one. Most often it
+    // is an expression that resolved to nothing for this item, so the hint names the field a Chat Trigger puts its text in.
+    if (PROMPT_REQUIRED_OPS.includes(op) && !String(ctx.getNodeParameter("prompt", i, "") ?? "").trim()) {
+      throw new NodeOperationError(ctx.getNode(), `Prompt is empty, and '${op}' needs one`, {
+        itemIndex: i,
+        description:
+          "Put the text in Prompt — what to draw, or the edit instruction. If Prompt is an expression, check that it resolves to text for this item: after a Chat Trigger, the message is {{ $json.chatInput }}."
+      });
+    }
     if (!ctx.getNodeParameter("storeResult", i, false) && !ctx.getNodeParameter("dryRun", i, false)) {
       // An item with no file stops here (#852): nothing it could run needs the service, so the execution's catalogue
       // read, sent before any item started (#873), is all that reaches it.
-      if (inputMode === "binary" && !PROMPT_ONLY_OPS.includes(op)) {
+      if (inputMode === "binary" && !INPUT_OPTIONAL_OPS.includes(op)) {
         api.requireBinary(ctx, i, ctx.getNodeParameter("binaryProperty", i, "data") as string, "op");
       }
       // Store Result off (the default) means: transform the binary we were handed and give the result straight back. No
@@ -342,8 +351,8 @@ async function resolveInputAssets(
   if (mode === "binary") {
     const property = ctx.getNodeParameter("binaryProperty", i, "data") as string;
     const from = op ? "op" : "preset";
-    // generate left on Binary File after a node with no file draws from the prompt, as Input None would (#852).
-    if (op && PROMPT_ONLY_OPS.includes(op)) {
+    // generate (or render_template) left on Binary File after a node with no file runs as Input None would (#852).
+    if (op && INPUT_OPTIONAL_OPS.includes(op)) {
       try {
         ctx.helpers.assertBinaryData(i, property);
       } catch {
@@ -436,7 +445,9 @@ async function runSyncOp(ctx: IExecuteFunctions, i: number, op: string, lanes: L
   } catch {
     return null; // catalogue unreachable → the job path still works. Slower beats wrong.
   }
-  if (!endpoints[op]) return null;
+  // Only an op the catalogue answers at /images/transform, the one endpoint this path calls: render_template's is
+  // /images/render, which takes a template and a row, not an image — sent here it was a 400 every time (#901).
+  if (endpoints[op] !== "POST /api/v1/images/transform") return null;
 
   const input = await syncInput(ctx, i, p);
   if (!input) return null;

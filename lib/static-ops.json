@@ -4,13 +4,15 @@
     "kind": "ai",
     "description": "Text → image. Returns one asset per generated image.",
     "takesPrompt": true,
+    "promptRequired": true,
     "inputOptional": true
   },
   {
     "op": "edit",
     "kind": "ai",
     "description": "Image + prompt → image (instruction edit, style transfer, inpaint by description).",
-    "takesPrompt": true
+    "takesPrompt": true,
+    "promptRequired": true
   },
   {
     "op": "remove_bg",

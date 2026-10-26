@@ -12,6 +12,8 @@ export interface OpEntry {
   takesPrompt?: boolean;
   /** The op runs with no input image — the catalogue's `requiresAssets: false` (the static list only). */
   inputOptional?: boolean;
+  /** The op is refused without a prompt — the catalogue's `requiresPrompt` (the static list only). */
+  promptRequired?: boolean;
 }
 
 /**
@@ -31,11 +33,12 @@ export const STATIC_OPS: OpEntry[] = STATIC_OPS_JSON;
 export const PROMPT_OPS = STATIC_OPS.filter((o) => o.takesPrompt).map((o) => o.op);
 
 /**
- * Ops that draw from the prompt alone (generate): Input Binary File on an item with no file runs them as Input None
- * (#852) — the first thing a new workflow does is put this node after Manual Trigger, which outputs no file, and pick
- * generate without touching Input. An op that needs an image (edit, analyze) still stops, saying where to get one.
+ * Ops that run with no input image (generate, render_template): Input Binary File on an item with no file runs them as
+ * Input None (#852) — the first thing a new workflow does is put this node after Manual Trigger, which outputs no file,
+ * and pick generate without touching Input. render_template was left out until #901's matrix found it told to bring an
+ * image it never reads. An op that needs an image (edit, analyze) still stops, saying where to get one.
  */
-export const PROMPT_ONLY_OPS = STATIC_OPS.filter((o) => o.takesPrompt && o.inputOptional).map((o) => o.op);
+export const INPUT_OPTIONAL_OPS = STATIC_OPS.filter((o) => o.inputOptional).map((o) => o.op);
 
 /**
  * Ops that work on an image they are given — every op the catalogue says needs `assetIds`. Input None stops on them
@@ -44,6 +47,13 @@ export const PROMPT_ONLY_OPS = STATIC_OPS.filter((o) => o.takesPrompt && o.input
  * know (added to the API since) is left for the service to answer.
  */
 export const NEEDS_IMAGE_OPS = STATIC_OPS.filter((o) => !o.inputOptional).map((o) => o.op);
+
+/**
+ * Ops the catalogue refuses without a prompt (generate, edit). An empty Prompt stops in the node (#901): it is most often
+ * an expression that resolved to nothing — a field name the previous node does not have — and the job could only be
+ * refused for it.
+ */
+export const PROMPT_REQUIRED_OPS = STATIC_OPS.filter((o) => o.promptRequired).map((o) => o.op);
 
 /** Kinds the dropdown lists; `sync` ops (read_metadata) are answered by Asset → Get, not by a job. */
 const JOB_KINDS = new Set(["ai", "deterministic"]);
