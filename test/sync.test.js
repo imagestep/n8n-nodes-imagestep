@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ITEM_CONCURRENCY, ImageStep } from "../nodes/ImageStep/ImageStep.node.ts";
-import { fakeContext } from "./fake-context.js";
+import { fakeContext, ok } from "./fake-context.js";
 
 /**
  * Store Result = off (#82): binary in, binary out, nothing stored.
@@ -176,11 +176,20 @@ describe("op:run with Store Result off", () => {
   });
 
   it("keeps Input=None on the job path — there are no bytes to send", async () => {
+    // render_template: an op with a sync form that needs no image (Input None on one that does stops in the node, #901).
     const ctx = fakeContext({
-      params: { resource: "op", operation: "run", storeResult: false, op: "resize", parameters: "{}", inputMode: "none", wait: false },
+      params: {
+        resource: "op",
+        operation: "run",
+        storeResult: false,
+        op: "render_template",
+        parameters: "{}",
+        inputMode: "none",
+        wait: false
+      },
       binary: {},
       routes: {
-        "GET /api/v1/ops": opsRoute("POST /api/v1/images/transform"),
+        "GET /api/v1/ops": () => ok([{ op: "render_template", kind: "deterministic", syncEndpoint: "POST /api/v1/images/render" }]),
         "POST /api/v1/jobs": () => ({ status: 200, body: { success: true, data: { id: "job-1", status: "PROCESSING", items: [] } } })
       }
     });
@@ -279,7 +288,7 @@ describe("many items", () => {
     let inFlight = 0;
     let widest = 0;
     const ctx = fakeContext({
-      params: { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast1", wait: false },
+      params: { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast_1", wait: false },
       items: Array.from({ length: 6 }, () => ({ json: {} })),
       routes: {
         "GET /api/v1/ops": ops,
@@ -300,7 +309,7 @@ describe("many items", () => {
 
   it("stops starting items after a failure and reports the failed item", async () => {
     const ctx = fakeContext({
-      params: { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast1", wait: false },
+      params: { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast_1", wait: false },
       items: Array.from({ length: 10 }, () => ({ json: {} })),
       routes: {
         "GET /api/v1/ops": ops,

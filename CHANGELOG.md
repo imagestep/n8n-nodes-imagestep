@@ -4,6 +4,19 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## 0.1.8 — 2026-10-26
+
+### Fixed
+
+- Input None with an op that works on an image — every op but `generate` and `render_template`, the default
+  `remove_bg` included — stops in the node and says how to draw from text: set Op to generate and put the text in
+  Prompt. It used to submit the job, which the API refused for its missing asset id without naming the op that needs
+  none.
+- Asset IDs takes asset IDs (`ast_…`) and nothing else. A value with anything else in it — the previous node's whole
+  output mapped into the field, or a sentence — stops in the node, quoting the first 60 characters it got and naming
+  the expression that maps the ID alone. It used to be cut at every space and comma and sent, and the API answered with
+  a 404 that listed each piece.
+
 ## 0.1.7 — 2026-10-25
 
 ### Fixed

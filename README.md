@@ -80,8 +80,9 @@ One node, a **Resource** and an **Operation** dropdown. It is marked usable as a
   `generate · edit · remove_bg · upscale · restore_face · colorize · analyze · resize · convert · compress ·
   crop · pad · grayscale · rotate · flip · flop · trim · flatten · adjust · mask · blur_region · overlay · caption · render_template` when that call fails
   — generated from the service's committed catalogue, so its descriptions are the catalogue's own. Fields:
-  - **Input** — *Binary File* (the item's binary property), *Asset IDs* (comma-separated; one job
-    over all of them), or *None* (for `generate`).
+  - **Input** — *Binary File* (the item's binary property), *Asset IDs* (`ast_…`, comma-separated; one
+    job over all of them — anything else in the field stops the node before it sends a job), or *None*
+    (for `generate` and `render_template`; an op that works on an image stops on it, naming `generate`).
   - **Store Result** (default **off**) — off: one image in, the transformed bytes straight back out.
     Nothing is created in the account, nothing is published, nothing is polled — which matters
     because the job path had to publish the customer's image to a public URL just so the workflow

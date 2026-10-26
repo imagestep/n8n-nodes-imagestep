@@ -33,14 +33,14 @@ function uploadRoutes(seen) {
     },
     "POST /api/v1/assets/finish-upload": (req) => {
       seen.finish = req.body;
-      return ok([{ id: "ast1", name: "cat.png", status: "PROCESSING" }]);
+      return ok([{ id: "ast_1", name: "cat.png", status: "PROCESSING" }]);
     },
     "POST /api/v1/assets/status": () => {
       polls++;
-      return ok({ items: [{ id: "ast1", status: polls === 1 ? "PROCESSING" : "DONE" }] });
+      return ok({ items: [{ id: "ast_1", status: polls === 1 ? "PROCESSING" : "DONE" }] });
     },
-    "GET /api/v1/assets/ast1": () =>
-      ok({ id: "ast1", name: "cat.png", status: "DONE", image: { mimeType: "image/png", width: 1, height: 1 } })
+    "GET /api/v1/assets/ast_1": () =>
+      ok({ id: "ast_1", name: "cat.png", status: "DONE", image: { mimeType: "image/png", width: 1, height: 1 } })
   };
 }
 
@@ -51,7 +51,7 @@ describe("uploadBinary — stage → presigned PUT → finish → poll", () => {
 
     const asset = await api.uploadBinary(ctx, 0, "data", { collection: "shop", intervalMs: 1 });
 
-    expect(asset).toMatchObject({ id: "ast1", status: "DONE" });
+    expect(asset).toMatchObject({ id: "ast_1", status: "DONE" });
     expect(seen.stage).toEqual([{ fileName: "cat.png", fileSize: png.length, sha1Hash: sha1 }]);
     expect(seen.put.via).toBe("plain");
     expect(seen.put.headers["Content-Type"]).toBe("image/png");
@@ -64,7 +64,7 @@ describe("uploadBinary — stage → presigned PUT → finish → poll", () => {
       "auth POST /api/v1/assets/finish-upload",
       "auth POST /api/v1/assets/status",
       "auth POST /api/v1/assets/status",
-      "auth GET /api/v1/assets/ast1"
+      "auth GET /api/v1/assets/ast_1"
     ]);
     // Every API write carries an Idempotency-Key and the package User-Agent; the storage PUT does not.
     for (const c of ctx.calls.filter((c) => c.via === "auth")) {
@@ -129,8 +129,8 @@ function jobRoutes(seen, { publish = true } = {}) {
         status: "COMPLETED",
         actualCredits: 10,
         items: [
-          { status: "COMPLETED", sourceAssetId: "ast1", resultAssetId: "out1" },
-          { status: "COMPLETED", sourceAssetId: "ast2", resultAssetId: "out2" }
+          { status: "COMPLETED", sourceAssetId: "ast_1", resultAssetId: "out1" },
+          { status: "COMPLETED", sourceAssetId: "ast_2", resultAssetId: "out2" }
         ]
       });
     },
@@ -174,7 +174,7 @@ describe("ImageStep node — Operation → Run", () => {
         operation: "run",
         op: "remove_bg",
         inputMode: "assetIds",
-        assetIds: "ast1, ast2",
+        assetIds: "ast_1, ast_2",
         parameters: "{}",
         storeResult: true,
         wait: true,
@@ -183,7 +183,7 @@ describe("ImageStep node — Operation → Run", () => {
     });
     const [out] = await new ImageStep().execute.call(ctx);
     // Wait is on, so the wait starts on the submit itself (#355): the service holds it for up to its 60 s ceiling.
-    expect(seen.job).toEqual({ op: "remove_bg", assetIds: ["ast1", "ast2"], wait: 60 });
+    expect(seen.job).toEqual({ op: "remove_bg", assetIds: ["ast_1", "ast_2"], wait: 60 });
     // …and what is left of Wait Seconds (180 by default) goes to a long-poll read, never a fixed-interval poll.
     expect(seen.jobWait).toBe(60);
     expect(seen.publish).toEqual({ ids: ["out1", "out2"], published: true });
@@ -204,7 +204,7 @@ describe("ImageStep node — Operation → Run", () => {
       const seen = {};
       const ctx = fakeContext({
         routes: jobRoutes(seen),
-        params: { resource: "op", operation: "run", op: "remove_bg", inputMode: "assetIds", assetIds: "ast1, ast2", ...params }
+        params: { resource: "op", operation: "run", op: "remove_bg", inputMode: "assetIds", assetIds: "ast_1, ast_2", ...params }
       });
       const [out] = await new ImageStep().execute.call(ctx);
       expect(seen.publish).toBeUndefined();
@@ -236,13 +236,13 @@ describe("ImageStep node — Operation → Run", () => {
       }
     });
     // uploadBinary polls with the default interval; make the asset ready on the first poll.
-    routes["POST /api/v1/assets/status"] = () => ok({ items: [{ id: "ast1", status: "DONE" }] });
-    routes["GET /api/v1/assets/ast1"] = () => ok({ id: "ast1", status: "DONE" });
+    routes["POST /api/v1/assets/status"] = () => ok({ items: [{ id: "ast_1", status: "DONE" }] });
+    routes["GET /api/v1/assets/ast_1"] = () => ok({ id: "ast_1", status: "DONE" });
     const [out] = await new ImageStep().execute.call(ctx);
     expect(seen.finish[0].collection).toBe("shop");
     expect(seen.job).toEqual({
       op: "edit",
-      assetIds: ["ast1"],
+      assetIds: ["ast_1"],
       prompt: "make it blue",
       model: "google/x",
       parameters: { strength: 0.5 },
@@ -255,10 +255,10 @@ describe("ImageStep node — Operation → Run", () => {
   it("a binary whose ingest FAILED is that item's error, with the asset's reason, and no job is submitted (#759)", async () => {
     const seen = {};
     const routes = { ...uploadRoutes(seen), ...jobRoutes(seen) };
-    routes["POST /api/v1/assets/status"] = () => ok({ items: [{ id: "ast1", status: "FAILED" }] });
-    routes["GET /api/v1/assets/ast1"] = () =>
+    routes["POST /api/v1/assets/status"] = () => ok({ items: [{ id: "ast_1", status: "FAILED" }] });
+    routes["GET /api/v1/assets/ast_1"] = () =>
       ok({
-        id: "ast1",
+        id: "ast_1",
         name: "cat.png",
         status: "FAILED",
         error: { code: "unsupported_format", message: "not an image", retryable: false }
@@ -291,13 +291,13 @@ describe("ImageStep node — Operation → Run", () => {
     const seen = {};
     const ctx = fakeContext({
       routes: jobRoutes(seen),
-      params: { resource: "op", operation: "run", op: "remove_bg", inputMode: "assetIds", assetIds: "ast1,ast2", dryRun: true }
+      params: { resource: "op", operation: "run", op: "remove_bg", inputMode: "assetIds", assetIds: "ast_1,ast_2", dryRun: true }
     });
     const [out] = await new ImageStep().execute.call(ctx);
     expect(seen.dryRun).toBe("true");
     expect(out[0].json).toEqual({
       dryRun: true,
-      request: { op: "remove_bg", assetIds: ["ast1", "ast2"] },
+      request: { op: "remove_bg", assetIds: ["ast_1", "ast_2"] },
       estimate: { type: "ai-remove-bg", totalItems: 2, costPerItem: 5, estimatedCredits: 10, sufficientCredit: true }
     });
     expect(afterCatalogue(ctx)).toHaveLength(1);
@@ -341,7 +341,7 @@ describe("ImageStep node — Operation → Run", () => {
         operation: "run",
         op: "remove_bg",
         inputMode: "assetIds",
-        assetIds: "ast1,ast2",
+        assetIds: "ast_1,ast_2",
         storeResult: true,
         wait: true,
         publish: true,
@@ -367,7 +367,7 @@ describe("ImageStep node — Operation → Run", () => {
       operation: "run",
       op: "convert",
       inputMode: "assetIds",
-      assetIds: "ast1",
+      assetIds: "ast_1",
       parameters: '{"format":"bmp"}'
     };
     const ctx = fakeContext({ routes, params });
@@ -394,7 +394,7 @@ describe("ImageStep node — Operation → Run", () => {
       "GET /api/v1/jobs/job1": () => ok({ id: "job1", type: "ai-upscale", status: "PROCESSING", totalItems: 1, items: [] })
     });
     for (const params of [
-      { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast1", storeResult: true, waitSeconds: 0.05 },
+      { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast_1", storeResult: true, waitSeconds: 0.05 },
       { resource: "job", operation: "wait", jobId: "job1", waitSeconds: 0.05 }
     ]) {
       const err = await new ImageStep().execute.call(fakeContext({ routes: running(), params })).catch((e) => e);
@@ -416,7 +416,7 @@ describe("ImageStep node — Operation → Run", () => {
       operation: "run",
       op: "convert",
       inputMode: "assetIds",
-      assetIds: "ast1",
+      assetIds: "ast_1",
       parameters: '{"format":"webp"}'
     };
     const enveloped = fakeContext({
@@ -528,6 +528,99 @@ describe("an item with no file (#852)", () => {
   });
 });
 
+// imagestep#901 — a new user drew from a Chat Trigger: Input None, Op still remove_bg. The service refused the job for its
+// missing asset id, twice; then the trigger's whole output went into Asset IDs and came back as a 404 listing twelve
+// "ids" cut from its JSON. Neither said that drawing from text is generate with a Prompt.
+describe("Input None or Asset IDs that cannot be what the op needs (#901)", () => {
+  const chat = JSON.stringify({ action: "sendMessage", sessionId: "4f1c", chatInput: "draw a red bicycle on a white background" });
+
+  it("Input None on an op that needs an image sends only the catalogue read, then points at generate and Prompt", async () => {
+    for (const changed of [{}, { storeResult: true }, { dryRun: true }]) {
+      const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ inputMode: "none", ...changed }) });
+      expect(ctx.getNodeParameter("op", 0)).toBe("remove_bg");
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.constructor.name).toBe("NodeOperationError");
+      expect(error.message).toBe("Input is set to None, but 'remove_bg' works on an image you give it");
+      expect(error.description).toContain("set Op to generate and put the text in Prompt");
+      expect(error.description).toContain("set Input to Binary File");
+      expect(afterCatalogue(ctx)).toEqual([]);
+    }
+  });
+
+  it("the same for every op the catalogue says needs an image, and a row under continueOnFail", async () => {
+    for (const op of ["edit", "analyze", "upscale", "resize"]) {
+      const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ op, inputMode: "none", prompt: "x" }) });
+      ctx.continueOnFail = () => true;
+      const [out] = await new ImageStep().execute.call(ctx);
+      expect(out[0].json.error).toBe(`Input is set to None, but '${op}' works on an image you give it`);
+      expect(afterCatalogue(ctx)).toEqual([]);
+    }
+  });
+
+  it("generate and render_template still run with Input None", async () => {
+    const generated = {};
+    const generate = fakeContext({
+      routes: jobRoutes(generated),
+      params: editorDefaults({ op: "generate", inputMode: "none", prompt: "a red bicycle", storeResult: true, wait: false })
+    });
+    await new ImageStep().execute.call(generate);
+    expect(generated.job).toEqual({ op: "generate", prompt: "a red bicycle", count: 1 });
+
+    const rendered = {};
+    const parameters = JSON.stringify({ template: "tpl_1", data: { title: "Hi" } });
+    const render = fakeContext({
+      routes: jobRoutes(rendered),
+      params: editorDefaults({ op: "render_template", inputMode: "none", parameters, storeResult: true, wait: false })
+    });
+    await new ImageStep().execute.call(render);
+    expect(rendered.job).toEqual({ op: "render_template", parameters: JSON.parse(parameters) });
+  });
+
+  it("Asset IDs holding a whole item (not ast_…) stops before any job, showing what it got", async () => {
+    for (const changed of [{}, { storeResult: true }]) {
+      const ctx = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ inputMode: "assetIds", assetIds: chat, ...changed }) });
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.constructor.name).toBe("NodeOperationError");
+      expect(error.message).toBe(`Asset IDs takes ImageStep asset IDs (ast_…), but got: ${chat.slice(0, 60)}…`);
+      expect(error.description).toContain("{{ $json.assetId }}");
+      expect(error.description).toContain("set Op to generate, Input to None, and put the text in Prompt");
+      expect(afterCatalogue(ctx)).toEqual([]);
+    }
+  });
+
+  it("a sentence is refused the same way; a preset and Asset → Publish leave generate out of the hint", async () => {
+    const sentence = fakeContext({ routes: jobRoutes({}), params: editorDefaults({ inputMode: "assetIds", assetIds: "draw a cat" }) });
+    expect((await new ImageStep().execute.call(sentence).catch((e) => e)).message).toBe(
+      "Asset IDs takes ImageStep asset IDs (ast_…), but got: draw a cat"
+    );
+
+    const preset = fakeContext({
+      routes: jobRoutes({}),
+      params: editorDefaults({ resource: "preset", preset: "web-optimize", inputMode: "assetIds", assetIds: "ast_1, job_2" })
+    });
+    const fromPreset = await new ImageStep().execute.call(preset).catch((e) => e);
+    expect(fromPreset.message).toBe("Asset IDs takes ImageStep asset IDs (ast_…), but got: ast_1, job_2");
+    expect(fromPreset.description).toContain("set Input to None");
+    expect(fromPreset.description).not.toContain("set Op to generate");
+    expect(afterCatalogue(preset)).toEqual([]);
+
+    const publish = fakeContext({ routes: jobRoutes({}), params: { resource: "asset", operation: "publish", assetIds: chat } });
+    const fromPublish = await new ImageStep().execute.call(publish).catch((e) => e);
+    expect(fromPublish.message).toMatch(/^Asset IDs takes ImageStep asset IDs/);
+    expect(fromPublish.description).not.toMatch(/generate|Input to None/);
+    expect(afterCatalogue(publish)).toEqual([]);
+  });
+
+  it("ast_ ids — as a list or an array an expression made — are submitted as before", async () => {
+    for (const assetIds of ["ast_x, ast_y", ["ast_x", "ast_y"]]) {
+      const seen = {};
+      const ctx = fakeContext({ routes: jobRoutes(seen), params: editorDefaults({ inputMode: "assetIds", assetIds, wait: false }) });
+      await new ImageStep().execute.call(ctx);
+      expect(seen.job).toEqual({ op: "remove_bg", assetIds: ["ast_x", "ast_y"] });
+    }
+  });
+});
+
 describe("ImageStep node — Preset, Job, Asset", () => {
   it("runs a preset as a job, and a stale Mode parameter never reaches the request (#331)", async () => {
     const seen = {};
@@ -538,18 +631,18 @@ describe("ImageStep node — Preset, Job, Asset", () => {
         operation: "run",
         preset: "builtin-util-to-webp",
         inputMode: "assetIds",
-        assetIds: "ast1",
+        assetIds: "ast_1",
         mode: "REPLACE_MEDIA",
         wait: false
       }
     });
     await new ImageStep().execute.call(ctx);
-    expect(seen.job).toEqual({ presetId: "builtin-util-to-webp", assetIds: ["ast1"] });
+    expect(seen.job).toEqual({ presetId: "builtin-util-to-webp", assetIds: ["ast_1"] });
   });
 
   // #564: a preset always runs as a job, and Store Result is what decides whether its outputs are published.
   it("publishes a preset's outputs only with Store Result on", async () => {
-    const params = { resource: "preset", operation: "run", preset: "builtin-util-to-webp", inputMode: "assetIds", assetIds: "ast1,ast2" };
+    const params = { resource: "preset", operation: "run", preset: "builtin-util-to-webp", inputMode: "assetIds", assetIds: "ast_1,ast_2" };
     const off = {};
     await new ImageStep().execute.call(fakeContext({ routes: jobRoutes(off), params: { ...params, publish: true } }));
     expect(off.publish).toBeUndefined();
@@ -608,7 +701,7 @@ describe("ImageStep node — Preset, Job, Asset", () => {
           preset: "web-optimize",
           presetVersion: 3,
           inputMode: "assetIds",
-          assetIds: "ast1",
+          assetIds: "ast_1",
           wait: false
         }
       })
@@ -625,7 +718,7 @@ describe("ImageStep node — Preset, Job, Asset", () => {
           preset: "web-optimize",
           presetVersion: 0,
           inputMode: "assetIds",
-          assetIds: "ast1",
+          assetIds: "ast_1",
           wait: false
         }
       })
@@ -670,19 +763,19 @@ describe("ImageStep node — Preset, Job, Asset", () => {
       ...jobRoutes({}),
       "GET /api/v1/assets": (req) => {
         expect(req.qs).toEqual({ collection: "shop", page: 0, perPage: 100 });
-        return ok([{ id: "ast1", name: "a.png", image: { width: 1, height: 2 } }], { page: 0, total: 1, hasMore: false });
+        return ok([{ id: "ast_1", name: "a.png", image: { width: 1, height: 2 } }], { page: 0, total: 1, hasMore: false });
       },
-      "GET /api/v1/assets/ast1": () => ok({ id: "ast1", name: "a.png", image: { width: 1, height: 2 } })
+      "GET /api/v1/assets/ast_1": () => ok({ id: "ast_1", name: "a.png", image: { width: 1, height: 2 } })
     };
-    const publish = fakeContext({ routes, params: { resource: "asset", operation: "publish", assetIds: "out1" } });
-    expect((await new ImageStep().execute.call(publish))[0][0].json.publicUrl).toBe("https://cdn.test/out1");
+    const publish = fakeContext({ routes, params: { resource: "asset", operation: "publish", assetIds: "ast_out1" } });
+    expect((await new ImageStep().execute.call(publish))[0][0].json.publicUrl).toBe("https://cdn.test/ast_out1");
 
     const list = fakeContext({ routes, params: { resource: "asset", operation: "list", collection: "shop" } });
     const [rows] = await new ImageStep().execute.call(list);
-    expect(rows[0].json).toMatchObject({ assetId: "ast1", width: 1, total: 1, hasMore: false, nextCursor: null });
+    expect(rows[0].json).toMatchObject({ assetId: "ast_1", width: 1, total: 1, hasMore: false, nextCursor: null });
 
-    const get = fakeContext({ routes, params: { resource: "asset", operation: "get", assetId: "ast1" } });
-    expect((await new ImageStep().execute.call(get))[0][0].json).toMatchObject({ assetId: "ast1", height: 2 });
+    const get = fakeContext({ routes, params: { resource: "asset", operation: "get", assetId: "ast_1" } });
+    expect((await new ImageStep().execute.call(get))[0][0].json).toMatchObject({ assetId: "ast_1", height: 2 });
   });
 
   it("Asset → List with a Cursor reads the page after it and sends no page number (#493)", async () => {
@@ -797,7 +890,7 @@ describe("uploadFromUrls — the service fetches (#219)", () => {
 // #521: n8n's Retry On Fail runs the whole node again over every input item. The key of a write is derived from the
 // execution, the node, the item and the body, so the items an earlier try already submitted are replayed, not re-bought.
 describe("retries and idempotency keys (#521)", () => {
-  const params = { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast1", wait: false };
+  const params = { resource: "op", operation: "run", op: "upscale", inputMode: "assetIds", assetIds: "ast_1", wait: false };
   const queued = (id) => ok({ id, status: "PENDING", items: [] });
 
   it("derives the key from execution + node + item + body: the same item re-run sends the same key, other items do not", async () => {
@@ -824,9 +917,9 @@ describe("retries and idempotency keys (#521)", () => {
 
     // A different body is a different key: the service answers a reused key with a different body 409.
     const ctx = fakeContext();
-    const one = api.idempotencyKey(ctx, "POST", "/api/v1/jobs", { op: "upscale", assetIds: ["ast1"] }, 0);
-    expect(api.idempotencyKey(ctx, "POST", "/api/v1/jobs", { op: "upscale", assetIds: ["ast1"] }, 0)).toBe(one);
-    expect(api.idempotencyKey(ctx, "POST", "/api/v1/jobs", { op: "upscale", assetIds: ["ast2"] }, 0)).not.toBe(one);
+    const one = api.idempotencyKey(ctx, "POST", "/api/v1/jobs", { op: "upscale", assetIds: ["ast_1"] }, 0);
+    expect(api.idempotencyKey(ctx, "POST", "/api/v1/jobs", { op: "upscale", assetIds: ["ast_1"] }, 0)).toBe(one);
+    expect(api.idempotencyKey(ctx, "POST", "/api/v1/jobs", { op: "upscale", assetIds: ["ast_2"] }, 0)).not.toBe(one);
     // Outside an item (a trigger's lifecycle hooks) there is nothing to derive it from.
     expect(api.idempotencyKey(ctx, "POST", "/api/v1/webhook-endpoints", {}, undefined)).not.toBe(
       api.idempotencyKey(ctx, "POST", "/api/v1/webhook-endpoints", {}, undefined)
@@ -839,7 +932,7 @@ describe("retries and idempotency keys (#521)", () => {
     const routes = {
       "POST /api/v1/jobs": (req) => {
         const key = req.headers["Idempotency-Key"];
-        if (req.body.assetIds[0] === "ast2" && failing)
+        if (req.body.assetIds[0] === "ast_2" && failing)
           return fail(400, { code: "insufficient_credit", message: "top up", retryable: false });
         if (!byKey.has(key)) byKey.set(key, `job${byKey.size + 1}`);
         return queued(byKey.get(key));
@@ -849,7 +942,7 @@ describe("retries and idempotency keys (#521)", () => {
     const items = [{ json: {} }, { json: {} }];
     const ctx = () => {
       const c = fakeContext({ routes, params: perItem, items });
-      c.getNodeParameter = (name, i, fallback) => (name === "assetIds" ? `ast${i + 1}` : name in perItem ? perItem[name] : fallback);
+      c.getNodeParameter = (name, i, fallback) => (name === "assetIds" ? `ast_${i + 1}` : name in perItem ? perItem[name] : fallback);
       return c;
     };
     await expect(new ImageStep().execute.call(ctx())).rejects.toMatchObject({ code: "insufficient_credit" });

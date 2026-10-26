@@ -37,6 +37,14 @@ export const PROMPT_OPS = STATIC_OPS.filter((o) => o.takesPrompt).map((o) => o.o
  */
 export const PROMPT_ONLY_OPS = STATIC_OPS.filter((o) => o.takesPrompt && o.inputOptional).map((o) => o.op);
 
+/**
+ * Ops that work on an image they are given — every op the catalogue says needs `assetIds`. Input None stops on them
+ * before anything is submitted (#901): the service could only refuse the job for its missing asset id, and a person who
+ * set None to draw from a prompt with Op still on remove_bg needs to hear about generate. An op this release does not
+ * know (added to the API since) is left for the service to answer.
+ */
+export const NEEDS_IMAGE_OPS = STATIC_OPS.filter((o) => !o.inputOptional).map((o) => o.op);
+
 /** Kinds the dropdown lists; `sync` ops (read_metadata) are answered by Asset → Get, not by a job. */
 const JOB_KINDS = new Set(["ai", "deterministic"]);
 

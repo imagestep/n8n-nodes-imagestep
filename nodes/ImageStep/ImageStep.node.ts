@@ -10,7 +10,7 @@ import type {
 } from "n8n-workflow";
 import * as api from "../../lib/api";
 import type { Failure } from "../../lib/api";
-import { PROMPT_ONLY_OPS, STATIC_OPS, toOpOptions } from "../../lib/ops";
+import { NEEDS_IMAGE_OPS, PROMPT_ONLY_OPS, STATIC_OPS, toOpOptions } from "../../lib/ops";
 import { assetRef, buildOpJobBody, buildPresetJobBody, jobRef, normaliseIds, parseParameters } from "../../lib/refs";
 import type { Job, JobBody } from "../../lib/refs";
 import { properties } from "./description";
@@ -168,23 +168,30 @@ function serialLane(): Lanes["serial"] {
 
 /** One input item → zero or more output items ({ json, binary? }). A synchronous op runs as is; the rest queue. */
 async function runOne(ctx: IExecuteFunctions, resource: string, operation: string, i: number, lanes: Lanes): Promise<INodeExecutionData[]> {
-  if (
-    resource === "op" &&
-    operation === "run" &&
-    !ctx.getNodeParameter("storeResult", i, false) &&
-    !ctx.getNodeParameter("dryRun", i, false)
-  ) {
+  if (resource === "op" && operation === "run") {
     const op = ctx.getNodeParameter("op", i) as string;
-    // An item with no file stops here (#852): nothing it could run needs the service, so the execution's catalogue
-    // read, sent before any item started (#873), is all that reaches it.
-    if (ctx.getNodeParameter("inputMode", i, "binary") === "binary" && !PROMPT_ONLY_OPS.includes(op)) {
-      api.requireBinary(ctx, i, ctx.getNodeParameter("binaryProperty", i, "data") as string, "op");
+    const inputMode = ctx.getNodeParameter("inputMode", i, "binary");
+    // Input None on an op that needs an image stops here, whatever Store Result and Dry Run say (#901): the job could
+    // only be refused for its missing asset id, which said nothing to someone who meant to draw from a prompt.
+    if (inputMode === "none" && NEEDS_IMAGE_OPS.includes(op)) {
+      throw new NodeOperationError(ctx.getNode(), `Input is set to None, but '${op}' works on an image you give it`, {
+        itemIndex: i,
+        description:
+          "To draw an image from text, set Op to generate and put the text in Prompt. To process an image, set Input to Binary File (a file the previous node outputs) or Asset IDs (images already in ImageStep)."
+      });
     }
-    // Store Result off (the default) means: transform the binary we were handed and give the result straight back. No
-    // asset, no publish, no polling — and, crucially, nothing of the customer's is made world-readable just so the
-    // workflow can read its own output, which is what the job path had to do (publish → fetch from the CDN).
-    const sync = await runSyncOp(ctx, i, op, lanes);
-    if (sync) return sync;
+    if (!ctx.getNodeParameter("storeResult", i, false) && !ctx.getNodeParameter("dryRun", i, false)) {
+      // An item with no file stops here (#852): nothing it could run needs the service, so the execution's catalogue
+      // read, sent before any item started (#873), is all that reaches it.
+      if (inputMode === "binary" && !PROMPT_ONLY_OPS.includes(op)) {
+        api.requireBinary(ctx, i, ctx.getNodeParameter("binaryProperty", i, "data") as string, "op");
+      }
+      // Store Result off (the default) means: transform the binary we were handed and give the result straight back. No
+      // asset, no publish, no polling — and, crucially, nothing of the customer's is made world-readable just so the
+      // workflow can read its own output, which is what the job path had to do (publish → fetch from the CDN).
+      const sync = await runSyncOp(ctx, i, op, lanes);
+      if (sync) return sync;
+    }
   }
   return lanes.serial(async () => {
     if (lanes.halted) throw NOT_STARTED; // an earlier item failed the node while this one waited its turn
@@ -260,7 +267,7 @@ async function runQueued(ctx: IExecuteFunctions, resource: string, operation: st
       }));
     }
     if (operation === "publish") {
-      const ids = normaliseIds(p("assetIds"));
+      const ids = assetIdsField(ctx, i, "publish");
       if (!ids.length) throw new NodeOperationError(ctx.getNode(), "Asset IDs is empty", { itemIndex: i });
       return (await api.publishAssets(ctx, ids, { itemIndex: i })).map((a) => ({ json: assetRef(a) }));
     }
@@ -331,7 +338,7 @@ async function resolveInputAssets(
   op?: string
 ): Promise<{ assetIds: string[]; imageCount?: number }> {
   const mode = ctx.getNodeParameter("inputMode", i, "binary");
-  if (mode === "assetIds") return { assetIds: normaliseIds(ctx.getNodeParameter("assetIds", i, "")) };
+  if (mode === "assetIds") return { assetIds: assetIdsField(ctx, i, op ? "op" : "preset") };
   if (mode === "binary") {
     const property = ctx.getNodeParameter("binaryProperty", i, "data") as string;
     const from = op ? "op" : "preset";
@@ -363,6 +370,28 @@ async function resolveInputAssets(
     return { assetIds: [asset.id] };
   }
   return { assetIds: [] };
+}
+
+/**
+ * The Asset IDs field, split into ids — every one of which must look like an asset id (`ast_…`), or nothing is sent
+ * (#901). A Chat Trigger's whole output mapped into the field went out as twelve "ids" cut from its JSON, and the 404
+ * that listed them did not say what had gone wrong: the field wants the id alone, and a prompt belongs to generate.
+ */
+function assetIdsField(ctx: IExecuteFunctions, i: number, use: "op" | "preset" | "publish"): string[] {
+  const raw = ctx.getNodeParameter("assetIds", i, "");
+  const ids = normaliseIds(raw);
+  if (ids.every((id) => id.startsWith("ast_"))) return ids;
+  const text = typeof raw === "string" ? raw : JSON.stringify(raw);
+  const shown = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+  const ways = [
+    "Did the previous node's whole output get mapped into it? Map only the asset ID — after an ImageStep upload, the expression {{ $json.assetId }}.",
+    ...(use === "op" ? ["To draw an image from text, set Op to generate, Input to None, and put the text in Prompt."] : []),
+    ...(use === "preset" ? ["A preset whose first step is generate starts from a prompt: set Input to None."] : [])
+  ];
+  throw new NodeOperationError(ctx.getNode(), `Asset IDs takes ImageStep asset IDs (ast_…), but got: ${shown}`, {
+    itemIndex: i,
+    description: ways.join(" ")
+  });
 }
 
 /**
@@ -461,7 +490,7 @@ async function syncInput(
     };
   }
   if (mode === "assetIds") {
-    const ids = normaliseIds(p("assetIds", ""));
+    const ids = assetIdsField(ctx, i, "op");
     if (ids.length !== 1) return null;
     return {
       body: JSON.stringify({ assetId: ids[0] }),

@@ -70,7 +70,7 @@ export const CREDENTIAL = "imageStepApi";
 // Every request this package makes names it, the credential test included (imagestep#722): the service logs it, so a key
 // whose only calls are GET /usage says it was this node's credential test. A literal because n8n's rules give a community
 // node no file access to read package.json at run time; the node and credential tests hold it to the package's version.
-export const USER_AGENT = "n8n-nodes-imagestep/0.1.7";
+export const USER_AGENT = "n8n-nodes-imagestep/0.1.8";
 const DEFAULT_BASE_URL = "https://api.imagestep.dev";
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
