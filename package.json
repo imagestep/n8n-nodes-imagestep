@@ -21,7 +21,8 @@
     "build": "node scripts/build.mjs",
     "static-ops": "node scripts/static-ops.mjs",
     "test": "vitest run",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "clean": "rm -rf dist coverage"
   },
   "n8n": {
     "n8nNodesApiVersion": 1,
@@ -38,7 +39,7 @@
     "@vitest/coverage-v8": "^5.0.5",
     "n8n-workflow": "^2.16.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5"
   },
   "peerDependencies": {
