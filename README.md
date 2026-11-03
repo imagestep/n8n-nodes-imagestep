@@ -39,7 +39,7 @@ Create an **ImageStep API** credential:
 
 | Field | Value |
 |---|---|
-| API Key | an API key from the ImageStep console (Account → API keys) — get one free at https://imagestep.dev/keys |
+| API Key | an API key from the ImageStep console (Account → API keys) — get one free at https://imagestep.dev/keys?utm_source=npm&utm_medium=node-readme |
 | Base URL | `https://api.imagestep.dev` — change only for a self-hosted or staging ImageStep |
 
 The credential test reads the key's own usage (`GET /api/v1/usage`), which only a valid key can: a

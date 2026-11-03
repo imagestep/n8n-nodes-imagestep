@@ -28,7 +28,7 @@ export class ImageStepApi implements ICredentialType {
       typeOptions: { password: true },
       default: "",
       required: true,
-      description: "An ImageStep API key — get one free at https://imagestep.dev/keys"
+      description: "An ImageStep API key — get one free at https://imagestep.dev/keys?utm_source=n8n&utm_medium=credential"
     },
     {
       displayName: "Base URL",
@@ -57,7 +57,10 @@ export class ImageStepApi implements ICredentialType {
     rules: [
       {
         type: "responseCode",
-        properties: { value: 401, message: "Invalid API key — get one free at https://imagestep.dev/keys" }
+        properties: {
+          value: 401,
+          message: "Invalid API key — get one free at https://imagestep.dev/keys?utm_source=n8n&utm_medium=credential"
+        }
       }
     ]
   };
