@@ -21,11 +21,35 @@ const EVENTS: INodePropertyOptions[] = [
   { name: "Job Item Failed", value: "job.item.failed", description: "One item failed — opt in" }
 ];
 
+/** How many event ids the replay guard keeps: a 500-item job's per-item events, twice over, in one window. */
+const SEEN_LIMIT = 1000;
+
+/**
+ * Whether this event id was already delivered while a signature for it can still verify (#945): a captured delivery
+ * sent again inside the tolerance — the signature alone lets that through for up to an hour — or a retry of a delivery
+ * whose 200 was lost on the way back. The id is kept in the node's static data until `tolerance` seconds from now, which
+ * outlasts every signature that can still verify for it; expired ids are forgotten, then the oldest past SEEN_LIMIT.
+ */
+function seenBefore(staticData: IDataObject, id: string, tolerance: number, now: number): boolean {
+  const seen = { ...((staticData.seenEvents as Record<string, number> | undefined) || {}) };
+  for (const [key, until] of Object.entries(seen)) if (!(until > now)) delete seen[key];
+  const repeat = id in seen;
+  const until = Math.max(seen[id] || 0, now + tolerance);
+  // Re-inserted, so the keys stay in the order they expire and the oldest are the first ones dropped.
+  delete seen[id];
+  seen[id] = until;
+  const keys = Object.keys(seen);
+  for (const old of keys.slice(0, Math.max(0, keys.length - SEEN_LIMIT))) delete seen[old];
+  staticData.seenEvents = seen;
+  return repeat;
+}
+
 /**
  * ImageStep Trigger — a webhook endpoint registered on activation (`POST /api/v1/webhook-endpoints`),
  * verified per delivery (HMAC-SHA256 over `"<t>.<raw body>"`, docs/api-contract.md §6) and
  * removed on deactivation. Emits one item per event: `{ id, type, apiVersion, createdAt, attempt, data }` — the
- * event's envelope plus the delivery's attempt number.
+ * event's envelope plus the delivery's attempt number. A second delivery of one event id inside the signature
+ * tolerance is answered 200 and runs nothing (`seenBefore`).
  */
 export class ImageStepTrigger implements INodeType {
   description: INodeTypeDescription = {
@@ -126,6 +150,12 @@ export class ImageStepTrigger implements INodeType {
     }
 
     const event = (this.getBodyData() || {}) as IDataObject;
+    // The body's id, which the signature covers — never the ImageStep-Event-Id header, which it does not. A 200, so
+    // a retry whose first answer was lost stops there, and nothing reaches the workflow a second time.
+    if (typeof event.id === "string" && seenBefore(staticData, event.id, tolerance, Math.floor(Date.now() / 1000))) {
+      res.status(200).json({ received: true, duplicate: true });
+      return { noWebhookResponse: true };
+    }
     return {
       workflowData: [
         this.helpers.returnJsonArray([

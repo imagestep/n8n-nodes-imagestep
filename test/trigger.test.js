@@ -68,6 +68,47 @@ describe("ImageStep Trigger — delivery", () => {
     expect((await trigger.webhook.call(noSecret)).noWebhookResponse).toBe(true);
   });
 
+  // #945: inside the tolerance (up to an hour) the signature alone lets a captured delivery through again.
+  it("runs the workflow once per event id: a second delivery inside the window is answered 200 and runs nothing", async () => {
+    const staticData = { webhookId: "wh_1", webhookSecret: secret };
+    const first = delivery({ rawBody: raw, header: signBody(raw, secret), staticData });
+    expect((await trigger.webhook.call(first)).workflowData).toHaveLength(1);
+
+    const again = delivery({ rawBody: raw, header: signBody(raw, secret), staticData });
+    expect(await trigger.webhook.call(again)).toEqual({ noWebhookResponse: true });
+    expect(again.response).toEqual({ statusCode: 200, payload: { received: true, duplicate: true } });
+
+    const other = Buffer.from(JSON.stringify({ ...event, id: "evt_2" }));
+    expect(
+      (await trigger.webhook.call(delivery({ rawBody: other, header: signBody(other, secret), staticData }))).workflowData
+    ).toHaveLength(1);
+  });
+
+  it("remembers an id only as long as a signature for it can verify, keeps at most 1000, and never one it refused", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const expired = { webhookId: "wh_1", webhookSecret: secret, seenEvents: { evt_1: now - 1 } };
+    expect(
+      (await trigger.webhook.call(delivery({ rawBody: raw, header: signBody(raw, secret), staticData: expired }))).workflowData
+    ).toHaveLength(1);
+    expect(expired.seenEvents).toEqual({ evt_1: expect.any(Number) });
+    expect(expired.seenEvents.evt_1).toBeGreaterThanOrEqual(now + 300);
+
+    const full = { webhookId: "wh_1", webhookSecret: secret, seenEvents: {} };
+    for (let i = 0; i < 1000; i++) full.seenEvents[`evt_old_${i}`] = now + 100;
+    await trigger.webhook.call(delivery({ rawBody: raw, header: signBody(raw, secret), staticData: full }));
+    expect(Object.keys(full.seenEvents)).toHaveLength(1000);
+    expect(full.seenEvents).not.toHaveProperty("evt_old_0");
+    expect(full.seenEvents).toHaveProperty("evt_1");
+
+    // A forged delivery leaves no id behind, so it cannot shut the real one out.
+    const staticData = { webhookId: "wh_1", webhookSecret: secret };
+    await trigger.webhook.call(delivery({ rawBody: raw, header: signBody(raw, "other"), staticData }));
+    expect(staticData).not.toHaveProperty("seenEvents");
+    expect((await trigger.webhook.call(delivery({ rawBody: raw, header: signBody(raw, secret), staticData }))).workflowData).toHaveLength(
+      1
+    );
+  });
+
   it("falls back to re-serialising the parsed body when rawBody is unavailable", async () => {
     const serialised = JSON.stringify(event);
     const ctx = delivery({ rawBody: undefined, header: signBody(serialised, secret), body: event });

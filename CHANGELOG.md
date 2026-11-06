@@ -4,6 +4,15 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## Unreleased
+
+### Security
+
+- The trigger runs the workflow once per event id while a signature for it can still verify. Inside the Signature
+  Tolerance (up to an hour) a delivery sent again used to pass the signature check and run the workflow again; it is
+  now answered `200` and runs nothing, and so is a retry whose first `200` was lost. The node keeps up to 1000 recent
+  ids in its static data, each for the tolerance.
+
 ## 0.1.9 — 2026-10-26
 
 ### Fixed
