@@ -36,11 +36,11 @@
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.0",
     "n8n-workflow": "^2.16.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
