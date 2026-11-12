@@ -210,3 +210,18 @@ describe("webhook signature (docs/api-contract.md §6)", () => {
     expect(verifySignature(body, header, secret, { now, toleranceSeconds: 900 })).toBe(true);
   });
 });
+
+describe("instanceHeader", () => {
+  it("is a hash of the instance id, and nothing when n8n gives none", async () => {
+    const { instanceHeader } = await import("../lib/api.ts");
+    expect(instanceHeader({ getInstanceId: () => "abc" })["X-ImageStep-Instance"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(instanceHeader({ getInstanceId: () => "" })).toEqual({});
+    expect(
+      instanceHeader({
+        getInstanceId: () => {
+          throw new Error("old n8n");
+        }
+      })
+    ).toEqual({});
+  });
+});

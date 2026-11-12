@@ -6,6 +6,13 @@ and before 1.0 a minor version may change the interface.
 
 ## Unreleased
 
+### Changed
+
+- Every request to the ImageStep API carries `X-ImageStep-Instance`: a SHA-256 hash of the n8n instance's id, never
+  the id itself. ImageStep gives its free welcome credit once per person; when one n8n instance calls with the keys of
+  two accounts, the newer account loses what is left of an unpaid welcome credit. Nothing else changes, and uploads
+  to storage do not carry it. No header is sent when n8n gives no instance id.
+
 ### Security
 
 - The trigger runs the workflow once per event id while a signature for it can still verify. Inside the Signature

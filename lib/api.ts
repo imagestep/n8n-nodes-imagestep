@@ -138,6 +138,21 @@ export function idempotencyKey(ctx: Context, method: string, path: string, body:
  */
 export type CallerContext = "execute" | "load-options";
 
+/**
+ * Which n8n instance is calling, as `X-ImageStep-Instance`: a SHA-256 of the instance's id, never the id itself. ImageStep
+ * gives its free welcome credit once per person, and an n8n instance is one place a person runs several accounts from —
+ * n8n Cloud's outgoing addresses are shared by all of its users, so the address cannot say it. No header when n8n
+ * gives no id.
+ */
+export function instanceHeader(ctx: Context): IDataObject {
+  try {
+    const id = ctx.getInstanceId();
+    return id ? { "X-ImageStep-Instance": createHash("sha256").update(`n8n-instance\n${id}`).digest("hex") } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function baseUrl(ctx: Context): Promise<string> {
   const creds = await ctx.getCredentials(CREDENTIAL);
   return String(creds?.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -165,7 +180,7 @@ async function apiRequest<T = unknown>(
   } = {}
 ): Promise<{ data: T; meta?: PageMeta; replayed: boolean }> {
   const isWrite = method !== "GET" && method !== "HEAD";
-  const headers: IDataObject = { Accept: "application/json", "User-Agent": USER_AGENT };
+  const headers: IDataObject = { Accept: "application/json", "User-Agent": USER_AGENT, ...instanceHeader(ctx) };
   if (opts.context) headers["X-ImageStep-Context"] = opts.context;
   if (isWrite) headers["Idempotency-Key"] = opts.idempotencyKey || idempotencyKey(ctx, method, path, opts.body, opts.itemIndex);
   const request: IHttpRequestOptions = {
@@ -213,7 +228,7 @@ export async function apiRequestBinary(
   const request: IHttpRequestOptions = {
     method: "POST",
     url: `${await baseUrl(ctx)}${path}`,
-    headers: { Accept: "*/*", "User-Agent": USER_AGENT, ...(contentType ? { "Content-Type": contentType } : {}) },
+    headers: { Accept: "*/*", "User-Agent": USER_AGENT, ...instanceHeader(ctx), ...(contentType ? { "Content-Type": contentType } : {}) },
     qs,
     body,
     json: false,

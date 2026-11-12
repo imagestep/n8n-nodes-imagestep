@@ -73,6 +73,10 @@ describe("uploadBinary — stage → presigned PUT → finish → poll", () => {
       else expect(c.headers["Idempotency-Key"]).toBeUndefined();
     }
     expect(seen.put.headers["Idempotency-Key"]).toBeUndefined();
+    // Every API call names the n8n instance by a hash of its id, never the id; the storage PUT does not.
+    const instance = createHash("sha256").update("n8n-instance\ninstance-1").digest("hex");
+    for (const c of ctx.calls.filter((c) => c.via === "auth")) expect(c.headers["X-ImageStep-Instance"]).toBe(instance);
+    expect(seen.put.headers["X-ImageStep-Instance"]).toBeUndefined();
   });
 
   it("reuses the existing asset when the service already holds the bytes (sha1 dedupe)", async () => {
