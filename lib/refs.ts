@@ -37,6 +37,8 @@ export interface JobItem {
   status?: string;
   sourceAssetId?: string;
   resultAssetId?: string | null;
+  /** Only when the product was not made from the RAW file's sensor data (imagestep#990): `jpeg-xl` · `embedded-preview`. */
+  downgrade?: { reason?: string; source?: string } | null;
   error?: string;
   errorCode?: string;
   retryable?: boolean;
@@ -127,6 +129,8 @@ export function jobRef(job: Job, outputs?: Asset[]): IDataObject {
     status: i.status,
     sourceAssetId: i.sourceAssetId,
     resultAssetId: i.resultAssetId,
+    // Made from a JPEG XL DNG's embedded camera JPEG, not its sensor data (imagestep#990): a branch can tell the two apart.
+    downgrade: i.downgrade,
     error: i.error || undefined,
     errorCode: i.errorCode,
     retryable: i.retryable,
