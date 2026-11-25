@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import * as api from "../lib/api.ts";
+import { presetPromptSlot } from "../lib/ops.ts";
 import { ImageStep } from "../nodes/ImageStep/ImageStep.node.ts";
 import { properties } from "../nodes/ImageStep/description.ts";
 import { fakeContext, fail, ok } from "./fake-context.js";
@@ -678,7 +679,7 @@ describe("ImageStep node — Preset, Job, Asset", () => {
   it("runs a preset from a prompt: no upload, the prompt and count on the request", async () => {
     const seen = {};
     const ctx = fakeContext({
-      routes: jobRoutes(seen),
+      routes: { ...jobRoutes(seen), "GET /api/v1/presets/carousel-brand": () => ok({ id: "p_1", steps: [{ op: "generate" }] }) },
       params: {
         resource: "preset",
         operation: "run",
@@ -695,6 +696,112 @@ describe("ImageStep node — Preset, Job, Asset", () => {
       assetIds: [],
       prompt: "{{subject.hero}} on a wooden pier at sunrise",
       count: 4
+    });
+  });
+
+  /**
+   * imagestep#1031 — a prompt lands on a preset's one AI step, and only there (imagestep#362). An 11-24 new user filled
+   * Prompt on the built-in web-optimize (resize · sharpen · convert), and the first thing that said it could not work was
+   * the job's 400. The node now reads the preset's steps when Prompt is filled and stops before anything is sent.
+   */
+  describe("a prompt on a preset with no one AI step (#1031)", () => {
+    const WEB_OPTIMIZE = [{ op: "resize" }, { operation: "sharpen" }, { op: "convert" }];
+
+    function presetRun(steps, params = {}) {
+      const seen = {};
+      const ctx = fakeContext({
+        routes: { ...jobRoutes(seen), ...uploadRoutes(seen), "GET /api/v1/presets/web-optimize": () => ok({ id: "p_w", steps }) },
+        params: { resource: "preset", operation: "run", preset: "web-optimize", prompt: "make it pop", wait: false, ...params },
+        binary: { data: { buffer: png, mimeType: "image/png", fileName: "a.png" } }
+      });
+      return { ctx, seen };
+    }
+
+    it("no AI step + Prompt → stops in the node, before any upload or job request", async () => {
+      const { ctx, seen } = presetRun(WEB_OPTIMIZE);
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.message).toBe("Preset 'web-optimize' has no AI step, so Prompt has nothing to replace");
+      expect(error.description).toContain("Clear Prompt");
+      expect(error.description).toContain("pick a generate or edit preset");
+      expect(seen.job).toBeUndefined();
+      const rest = afterCatalogue(ctx);
+      expect(rest.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual(["GET /api/v1/presets/web-optimize"]);
+      expect(rest[0].headers["X-ImageStep-Context"]).toBe("execute");
+    });
+
+    it("several steps + Prompt → stops the same way; the preset is read at the Version the run pins", async () => {
+      const seen = {};
+      const ctx = fakeContext({
+        routes: {
+          ...jobRoutes(seen),
+          "GET /api/v1/presets/web-optimize%403": () => ok({ id: "p_w", steps: [{ op: "resize" }, { op: "generate" }] })
+        },
+        params: {
+          resource: "preset",
+          operation: "run",
+          preset: "web-optimize",
+          presetVersion: 3,
+          prompt: "x",
+          inputMode: "assetIds",
+          assetIds: "ast_1"
+        }
+      });
+      const error = await new ImageStep().execute.call(ctx).catch((e) => e);
+      expect(error.message).toBe("Preset 'web-optimize@3' runs several steps, so Prompt has no one step to replace");
+      expect(seen.job).toBeUndefined();
+    });
+
+    it("one AI step + Prompt → sent; an empty Prompt reads nothing; a read that fails leaves it to the service", async () => {
+      const one = presetRun([{ op: "edit", prompt: "saved" }], { inputMode: "assetIds", assetIds: "ast_1" });
+      await new ImageStep().execute.call(one.ctx);
+      expect(one.seen.job).toEqual({ presetId: "web-optimize", assetIds: ["ast_1"], prompt: "make it pop" });
+
+      const empty = presetRun(WEB_OPTIMIZE, { inputMode: "assetIds", assetIds: "ast_1", prompt: "  " });
+      await new ImageStep().execute.call(empty.ctx);
+      expect(empty.seen.job.presetId).toBe("web-optimize");
+      expect(afterCatalogue(empty.ctx).some((c) => new URL(c.url).pathname.startsWith("/api/v1/presets"))).toBe(false);
+
+      const down = {};
+      const ctx = fakeContext({
+        routes: {
+          ...jobRoutes(down),
+          "GET /api/v1/presets/web-optimize": () => fail(500, { code: "internal_error", message: "no", retryable: false })
+        },
+        params: {
+          resource: "preset",
+          operation: "run",
+          preset: "web-optimize",
+          prompt: "x",
+          inputMode: "assetIds",
+          assetIds: "ast_1",
+          wait: false
+        }
+      });
+      await new ImageStep().execute.call(ctx);
+      expect(down.job.prompt).toBe("x");
+    });
+
+    it("reads each preset once per execution, whatever the number of items", async () => {
+      const { ctx } = presetRun(WEB_OPTIMIZE, { inputMode: "assetIds", assetIds: "ast_1" });
+      ctx.getInputData = () => [{ json: {} }, { json: {} }, { json: {} }];
+      ctx.continueOnFail = () => true;
+      const [rows] = await new ImageStep().execute.call(ctx);
+      expect(rows.map((r) => r.json.error)).toEqual(
+        Array(3).fill("Preset 'web-optimize' has no AI step, so Prompt has nothing to replace")
+      );
+      expect(ctx.calls.filter((c) => new URL(c.url).pathname === "/api/v1/presets/web-optimize")).toHaveLength(1);
+    });
+
+    it("presetPromptSlot follows the service's segments: one AI segment takes it, an op it does not know is left alone", () => {
+      expect(presetPromptSlot([{ op: "generate" }])).toBe("one");
+      expect(presetPromptSlot([{ op: "remove_bg" }])).toBe("one");
+      expect(presetPromptSlot(WEB_OPTIMIZE)).toBe("none");
+      expect(presetPromptSlot([{ op: "convert" }])).toBe("none");
+      expect(presetPromptSlot([{ op: "generate" }, { op: "edit" }])).toBe("several");
+      expect(presetPromptSlot([{ op: "generate" }, { op: "convert" }])).toBe("several");
+      expect(presetPromptSlot([{ op: "generate" }, { op: "a_new_op" }])).toBeUndefined();
+      expect(presetPromptSlot([])).toBeUndefined();
+      expect(presetPromptSlot(undefined)).toBeUndefined();
     });
   });
 
@@ -840,13 +947,22 @@ describe("ImageStep node — Preset, Job, Asset", () => {
       routes: {
         "GET /api/v1/presets": (req) =>
           req.qs.filter === "builtin"
-            ? ok([{ id: "builtin-util-to-webp", slug: "util-to-webp", builtIn: true, description: "to webp" }])
-            : ok([{ id: "p_1", slug: "shop-hero", name: "Shop hero" }])
+            ? ok([
+                { id: "builtin-util-to-webp", slug: "util-to-webp", builtIn: true, description: "to webp", steps: [{ op: "convert" }] },
+                { id: "builtin-consistent-character", slug: "consistent-character", builtIn: true, steps: [{ op: "generate" }] }
+              ])
+            : ok([
+                { id: "p_1", slug: "shop-hero", name: "Shop hero" },
+                { id: "p_2", slug: "cut-and-shrink", steps: [{ op: "remove_bg" }, { op: "resize" }] }
+              ])
       }
     });
+    // Each option says whether Prompt has a step to land on (#1031); a row with no steps listed says nothing about it.
     expect(await node.methods.loadOptions.getPresets.call(presets)).toEqual([
-      { name: "util-to-webp", value: "builtin-util-to-webp", description: "built-in · to webp" },
-      { name: "shop-hero", value: "p_1", description: "yours" }
+      { name: "util-to-webp", value: "builtin-util-to-webp", description: "built-in · no AI step — leave Prompt empty · to webp" },
+      { name: "consistent-character", value: "builtin-consistent-character", description: "built-in · takes a prompt" },
+      { name: "shop-hero", value: "p_1", description: "yours" },
+      { name: "cut-and-shrink", value: "p_2", description: "yours · several steps — leave Prompt empty" }
     ]);
     // A dropdown being filled says so (#873): the service tells "opened the node" from "executed it" by this header.
     for (const ctx of [live, down, presets]) {

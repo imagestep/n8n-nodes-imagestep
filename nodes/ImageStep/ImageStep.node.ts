@@ -10,8 +10,8 @@ import type {
 } from "n8n-workflow";
 import * as api from "../../lib/api";
 import type { Failure } from "../../lib/api";
-import { INPUT_OPTIONAL_OPS, NEEDS_IMAGE_OPS, PROMPT_REQUIRED_OPS, STATIC_OPS, toOpOptions } from "../../lib/ops";
-import { assetRef, buildOpJobBody, buildPresetJobBody, jobRef, normaliseIds, parseParameters } from "../../lib/refs";
+import { INPUT_OPTIONAL_OPS, NEEDS_IMAGE_OPS, PROMPT_REQUIRED_OPS, STATIC_OPS, presetPromptSlot, toOpOptions } from "../../lib/ops";
+import { assetRef, buildOpJobBody, buildPresetJobBody, jobRef, normaliseIds, parseParameters, pinVersion } from "../../lib/refs";
 import type { Job, JobBody } from "../../lib/refs";
 import { properties } from "./description";
 
@@ -30,9 +30,18 @@ export const ITEM_CONCURRENCY = 3;
 /** Thrown for an item that was still queued when another item failed the node: it never ran, so it has no row. */
 const NOT_STARTED = Symbol("not started");
 
+/** What the Preset list says about where a prompt lands, by {@link presetPromptSlot}. */
+const PROMPT_NOTES: Record<string, string> = {
+  one: "takes a prompt",
+  none: "no AI step — leave Prompt empty",
+  several: "several steps — leave Prompt empty"
+};
+
 /** What the items of one execution share: the op catalogue, read once, and the one-at-a-time lane. */
 interface Lanes {
   syncEndpoints: () => Promise<Record<string, string | null>>;
+  /** A preset's steps at the version a run pins, read once per execution (#1031); null when it could not be read. */
+  presetSteps: (ref: string) => Promise<api.Preset["steps"] | null>;
   serial: <T>(fn: () => Promise<T>) => Promise<T>;
   halted: boolean;
 }
@@ -79,13 +88,18 @@ export class ImageStep implements INodeType {
           return toOpOptions(STATIC_OPS);
         }
       },
-      /** Built-in presets first, then the account's own; value = id, label = slug. */
+      /**
+       * Built-in presets first, then the account's own; value = id, label = slug. Each says whether it takes a prompt
+       * (#1031): a new user who filled Prompt on a utility preset learned only from the job's 400 that it has no AI step.
+       */
       async getPresets(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
         const presets = await api.listPresets(this);
         return presets.map((p) => ({
           name: p.slug || p.name || p.id,
           value: p.id,
-          description: [p.builtIn ? "built-in" : "yours", p.description].filter(Boolean).join(" · ")
+          description: [p.builtIn ? "built-in" : "yours", PROMPT_NOTES[presetPromptSlot(p.steps) ?? ""], p.description]
+            .filter(Boolean)
+            .join(" · ")
         }));
       }
     }
@@ -102,8 +116,21 @@ export class ImageStep implements INodeType {
     // read only sends op:run down the job path, as before.
     const catalogue = api.syncEndpoints(this, "execute");
     catalogue.catch(() => {}); // settled below; an item that never asks for it must not leave a rejection unhandled
+    const presetReads = new Map<string, Promise<api.Preset["steps"] | null>>();
     const lanes: Lanes = {
       syncEndpoints: () => catalogue,
+      presetSteps: (ref) => {
+        if (!presetReads.has(ref)) {
+          presetReads.set(
+            ref,
+            api.getPreset(this, ref, "execute").then(
+              (preset) => preset?.steps ?? null,
+              () => null
+            )
+          );
+        }
+        return presetReads.get(ref) as Promise<api.Preset["steps"] | null>;
+      },
       serial: serialLane(),
       // Set by the failing item itself, before its turn on the serial lane passes to the next one.
       halted: false
@@ -205,7 +232,7 @@ async function runOne(ctx: IExecuteFunctions, resource: string, operation: strin
   return lanes.serial(async () => {
     if (lanes.halted) throw NOT_STARTED; // an earlier item failed the node while this one waited its turn
     try {
-      return await runQueued(ctx, resource, operation, i);
+      return await runQueued(ctx, resource, operation, i, lanes);
     } catch (error) {
       if (!ctx.continueOnFail()) lanes.halted = true;
       throw api.asNodeError(ctx, error, i);
@@ -214,7 +241,13 @@ async function runOne(ctx: IExecuteFunctions, resource: string, operation: strin
 }
 
 /** Everything that is not a synchronous op: uploads, jobs, presets, reads. */
-async function runQueued(ctx: IExecuteFunctions, resource: string, operation: string, i: number): Promise<INodeExecutionData[]> {
+async function runQueued(
+  ctx: IExecuteFunctions,
+  resource: string,
+  operation: string,
+  i: number,
+  lanes: Lanes
+): Promise<INodeExecutionData[]> {
   const p = paramsOf(ctx, i);
 
   if (resource === "asset") {
@@ -303,6 +336,28 @@ async function runQueued(ctx: IExecuteFunctions, resource: string, operation: st
   if (resource === "preset" && operation === "run") {
     const options = p<RunOptions>("options", {});
     const fromPrompt = p("inputMode", "binary") === "none";
+    // A prompt on a preset with no one AI step to put it on stops here (#1031), before any upload or job: the service
+    // refuses it (imagestep#362), and that 400 is where an 11-24 new user's first run ended. The preset is read only when
+    // Prompt is filled, at the version the run pins; a read that fails leaves the answer to the service, as before.
+    const ref = pinVersion(p<string>("preset"), p("presetVersion", 0));
+    if (String(p("prompt", "") ?? "").trim()) {
+      const slot = presetPromptSlot(await lanes.presetSteps(ref));
+      if (slot === "none" || slot === "several") {
+        throw new NodeOperationError(
+          ctx.getNode(),
+          slot === "none"
+            ? `Preset '${ref}' has no AI step, so Prompt has nothing to replace`
+            : `Preset '${ref}' runs several steps, so Prompt has no one step to replace`,
+          {
+            itemIndex: i,
+            description:
+              slot === "none"
+                ? "Clear Prompt to run the preset as it is saved, or pick a generate or edit preset — the Preset list marks the ones that take a prompt."
+                : "Clear Prompt to run the prompts saved on the preset's steps, or change the prompt on the step itself, in the console's preset editor."
+          }
+        );
+      }
+    }
     const { assetIds, imageCount } = await resolveInputAssets(ctx, i, options);
     if (!assetIds.length && !imageCount && !fromPrompt)
       throw new NodeOperationError(ctx.getNode(), "A preset needs at least one input asset", { itemIndex: i });

@@ -488,7 +488,8 @@ export const properties: INodeProperties[] = [
     noneDescription: "No input image — the preset starts from a prompt (its first step is generate)"
   }),
   // imagestep#460 — the request-level prompt is how each item of a consistency preset gets its own scene while the
-  // subjects stay fixed (contract §8). The node cannot know which preset has one AI step, so the service says so.
+  // subjects stay fixed (contract §8). Only a preset with one AI step takes it: the Preset list says which, and a run
+  // with Prompt filled on any other stops in the node (#1031) — the service would refuse it (imagestep#362).
   {
     displayName: "Prompt",
     name: "prompt",
@@ -496,7 +497,7 @@ export const properties: INodeProperties[] = [
     typeOptions: { rows: 3 },
     default: "",
     description:
-      "Replaces the prompt on the preset's one AI step — the scene for this item. Write {{subject.&lt;name&gt;}} to use a subject's saved words instead of describing it again (in an expression, build the text in a Code node first: n8n reads {{ }} as its own). Empty runs the prompt saved on the preset; a preset with several steps or no AI step refuses one.",
+      "Replaces the prompt on the preset's one AI step — the scene for this item. Write {{subject.&lt;name&gt;}} to use a subject's saved words instead of describing it again (in an expression, build the text in a Code node first: n8n reads {{ }} as its own). Empty runs the prompt saved on the preset. Only a preset with one AI step takes a prompt — the Preset list marks which (of the built-ins, builtin-consistent-character and builtin-consistent-product); on a preset with no AI step or several steps, leave it empty.",
     ...show("preset", "run")
   },
   {

@@ -258,7 +258,7 @@ export function buildPresetJobBody({
 }
 
 /** `ref` at `version`, or as given when no version was asked for (or one is already on it). */
-function pinVersion(ref: string, version: number | string | undefined): string {
+export function pinVersion(ref: string, version: number | string | undefined): string {
   const wanted = Number(version);
   if (!Number.isInteger(wanted) || wanted < 1 || String(ref).includes("@")) return ref;
   return `${ref}@${wanted}`;

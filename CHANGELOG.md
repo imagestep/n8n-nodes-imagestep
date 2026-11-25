@@ -4,6 +4,17 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [Semantic Versioning](https://semver.org/),
 and before 1.0 a minor version may change the interface.
 
+## 0.1.11 — 2026-11-25
+
+### Fixed
+
+- The Preset list says which presets take a prompt: each option reads `takes a prompt` (one AI step), `no AI step —
+  leave Prompt empty`, or `several steps — leave Prompt empty`. A Preset → Run with Prompt filled on a preset with no
+  AI step, or with several steps, stops in the node and names the fix — clear Prompt, or pick a generate or edit
+  preset — before anything is uploaded or submitted. It used to submit the job, which the API refused with `400
+  invalid_param`. The node reads the preset (at the pinned Version) only when Prompt is filled, once per execution; if
+  that read fails, the job is sent as before and the API answers.
+
 ## 0.1.10 — 2026-11-20
 
 ### Changed

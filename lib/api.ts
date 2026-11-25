@@ -23,7 +23,7 @@ import type {
   IWebhookFunctions,
   JsonObject
 } from "n8n-workflow";
-import type { OpEntry } from "./ops";
+import type { OpEntry, PresetStep } from "./ops";
 import type { Asset, Job, JobBody } from "./refs";
 
 /** Every n8n context this layer is called from: a node's execute, a dropdown's loadOptions, a trigger's hooks and webhook. */
@@ -70,7 +70,7 @@ export const CREDENTIAL = "imageStepApi";
 // Every request this package makes names it, the credential test included (imagestep#722): the service logs it, so a key
 // whose only calls are GET /usage says it was this node's credential test. A literal because n8n's rules give a community
 // node no file access to read package.json at run time; the node and credential tests hold it to the package's version.
-export const USER_AGENT = "n8n-nodes-imagestep/0.1.10";
+export const USER_AGENT = "n8n-nodes-imagestep/0.1.11";
 const DEFAULT_BASE_URL = "https://api.imagestep.dev";
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
@@ -741,13 +741,19 @@ export async function listOps(ctx: Context, context: CallerContext): Promise<OpE
   return (await apiRequest<OpEntry[] | null>(ctx, "GET", "/api/v1/ops", { context })).data || [];
 }
 
-/** A preset as the dropdown shows it. */
+/** A preset as the dropdown shows it — and its steps, which say whether it takes a prompt (#1031). */
 export interface Preset {
   id: string;
   slug?: string;
   name?: string;
   description?: string;
   builtIn?: boolean;
+  steps?: PresetStep[];
+}
+
+/** One preset at the version `ref` pins (`slug@3`), or the current one — what a Preset → Run reads before it sends a prompt. */
+export async function getPreset(ctx: Context, ref: string, context: CallerContext): Promise<Preset> {
+  return (await apiRequest<Preset>(ctx, "GET", `/api/v1/presets/${encodeURIComponent(ref)}`, { context })).data;
 }
 
 export async function listPresets(ctx: Context): Promise<Preset[]> {

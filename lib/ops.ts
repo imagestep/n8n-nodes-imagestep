@@ -55,6 +55,40 @@ export const NEEDS_IMAGE_OPS = STATIC_OPS.filter((o) => !o.inputOptional).map((o
  */
 export const PROMPT_REQUIRED_OPS = STATIC_OPS.filter((o) => o.promptRequired).map((o) => o.op);
 
+/** One step of a preset, as `GET /api/v1/presets` lists it: an op, or a processing-registry `operation`. */
+export interface PresetStep {
+  op?: string;
+  operation?: string;
+}
+
+/**
+ * Where a request-level prompt lands on a preset (#1031): on its one AI step (`one`), or nowhere — a preset with no AI
+ * step (`none`) or one that runs as several segments (`several`), which the service refuses with 400 (imagestep#362).
+ * The service's rule, read the way it reads it (`PresetSteps.segments`, `JobService`): adjacent deterministic steps are
+ * one segment, each AI step is one, and only a single AI segment takes the override. Undefined when it cannot be told —
+ * no steps listed, or an op this release does not know (added to the API since): that preset is left to the service.
+ */
+export function presetPromptSlot(steps: PresetStep[] | null | undefined): "one" | "none" | "several" | undefined {
+  if (!Array.isArray(steps) || !steps.length) return undefined;
+  let segments = 0;
+  let ai = 0;
+  let inProcess = false;
+  for (const step of steps) {
+    const kind = step?.op ? STATIC_OPS.find((o) => o.op === step.op)?.kind : step?.operation ? "deterministic" : undefined;
+    if (!kind) return undefined;
+    if (kind === "ai") {
+      ai++;
+      segments++;
+      inProcess = false;
+    } else if (!inProcess) {
+      segments++;
+      inProcess = true;
+    }
+  }
+  if (!ai) return "none";
+  return segments === 1 ? "one" : "several";
+}
+
 /** Kinds the dropdown lists; `sync` ops (read_metadata) are answered by Asset → Get, not by a job. */
 const JOB_KINDS = new Set(["ai", "deterministic"]);
 

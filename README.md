@@ -139,6 +139,11 @@ One node, a **Resource** and an **Operation** dropdown. It is marked usable as a
   **one** `chain` job: one price, one settlement, and the image each step makes for the next is
   handed on and cleaned up for you.
 
+  **Prompt** replaces the prompt on a preset's one AI step — the scene for this item. Only a preset with
+  exactly one AI step takes one, and the dropdown says which: `takes a prompt`, `no AI step — leave Prompt
+  empty`, or `several steps — leave Prompt empty`. Filled on any other preset, the run stops in n8n before
+  anything is uploaded or submitted, and says to clear Prompt.
+
 ### Resource: Job
 
 - **Get** — the job reference by id; if the job is finished its outputs are collected and (with
